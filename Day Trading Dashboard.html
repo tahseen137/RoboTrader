@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated Day Trading Dashboard - Wealthsimple</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #208E9D;
+            --primary-dark: #1a6d78;
+            --success: #2DBD9C;
+            --danger: #E84C3D;
+            --warning: #F0A928;
+            --text: #1a1a1a;
+            --bg-light: #f8f9fa;
+            --bg: #ffffff;
+            --border: #e8e8e8;
+            --shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-light);
+            color: var(--text);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: var(--bg);
+            border-bottom: 2px solid var(--border);
+            padding: 20px 0;
+            margin-bottom: 30px;
+            box-shadow: var(--shadow);
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: var(--shadow);
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #666;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .metric {
+            margin-bottom: 15px;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+
+        .metric-subtext {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .positive { color: var(--success); }
+        .negative { color: var(--danger); }
+
+        .health-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        .health-fill {
+            height: 100%;
+            transition: width 0.3s, background-color 0.3s;
+        }
+
+        .health-fill.green { background: var(--success); }
+        .health-fill.yellow { background: var(--warning); }
+        .health-fill.red { background: var(--danger); }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: var(--bg-light);
+            padding: 12px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            text-transform: uppercase;
+            border-bottom: 2px solid var(--border);
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+
+        tr:hover {
+            background: var(--bg-light);
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+
+        .btn-close {
+            background: var(--danger);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+
+        .slider-container {
+            margin: 20px 0;
+        }
+
+        .slider-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--border);
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            border: none;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-closed { background: #e8f5e9; color: var(--success); }
+        .status-open { background: #fff3e0; color: var(--warning); }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+
+        .status-running { background: var(--success); animation: pulse 2s infinite; }
+        .status-paused { background: var(--warning); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .alert-box {
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 13px;
+            border-left: 4px solid;
+        }
+
+        .alert-info {
+            background: #e3f2fd;
+            border-left-color: #2196f3;
+            color: #1565c0;
+        }
+
+        .alert-warning {
+            background: #fff3e0;
+            border-left-color: var(--warning);
+            color: #e65100;
+        }
+
+        .alert-danger {
+            background: #ffebee;
+            border-left-color: var(--danger);
+            color: #b71c1c;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        input[type="text"], input[type="number"] {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        @media (max-width: 1024px) {
+            .grid-3 { grid-template-columns: repeat(2, 1fr); }
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 640px) {
+            .grid-3, .grid-2 { grid-template-columns: 1fr; }
+            h1 { font-size: 20px; }
+            .metric-value { font-size: 18px; }
+        }
+
+        .live-update {
+            animation: fadeIn 0.5s;
+        }
+
+        @keyframes fadeIn {
+            from { background: #fffacd; }
+            to { background: transparent; }
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 12px 20px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>📈 Automated Day Trading Dashboard</h1>
+            <p class="subtitle">Wealthsimple Margin Account | Real-time Trading System</p>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Account Overview Row -->
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title">💰 Account Overview</div>
+                <div class="metric">
+                    <div class="metric-label">Total Equity</div>
+                    <div class="metric-value" id="equity">$12,543.45</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Buying Power</div>
+                    <div class="metric-value" id="buyingPower">$25,086.90</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Margin Health</div>
+                    <div class="metric-value">78%</div>
+                    <div class="health-bar">
+                        <div class="health-fill green" style="width: 78%"></div>
+                    </div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Cash Available</div>
+                    <div class="metric-value">$1,200.55</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Margin Rate (CAD)</div>
+                    <div class="metric-subtext">4.45% annually</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">📊 Today's Summary</div>
+                <div class="metric">
+                    <div class="metric-label">Trades Executed</div>
+                    <div class="metric-value">5 of 3</div>
+                    <div class="metric-subtext">Max concurrent positions</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Win Rate</div>
+                    <div class="metric-value positive">60%</div>
+                    <div class="metric-subtext">3 wins, 2 losses</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Daily P&L</div>
+                    <div class="metric-value positive">+$143.21</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Return %</div>
+                    <div class="metric-value positive">+1.15%</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Max Drawdown</div>
+                    <div class="metric-value negative">-2.1%</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Positions -->
+        <div class="card">
+            <div class="card-title">📍 Live Positions (3 open)</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Qty</th>
+                        <th>Entry Price</th>
+                        <th>Current Price</th>
+                        <th>Unrealized P&L</th>
+                        <th>P&L %</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="live-update">
+                        <td><strong>AAPL</strong></td>
+                        <td>100</td>
+                        <td>$152.30</td>
+                        <td>$153.45</td>
+                        <td class="positive">+$115</td>
+                        <td class="positive">+0.76%</td>
+                        <td><button class="btn btn-close btn-small">Close</button></td>
+                    </tr>
+                    <tr>
+                        <td><strong>MSFT</strong></td>
+                        <td>50</td>
+                        <td>$370.10</td>
+                        <td>$369.80</td>
+                        <td class="negative">-$15</td>
+                        <td class="negative">-0.08%</td>
+                        <td><button class="btn btn-close btn-small">Close</button></td>
+                    </tr>
+                    <tr>
+                        <td><strong>GOOG</strong></td>
+                        <td>150</td>
+                        <td>$140.50</td>
+                        <td>$141.20</td>
+                        <td class="positive">+$105</td>
+                        <td class="positive">+0.50%</td>
+                        <td><button class="btn btn-close btn-small">Close</button></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Fund Management -->
+        <div class="card" style="margin-top: 20px;">
+            <div class="card-title">💵 Manage Available Trading Funds</div>
+            <div class="metric">
+                <div class="metric-label">Current Trading Allocation</div>
+                <div class="metric-value">$2,500</div>
+                <div class="metric-subtext">20% of total equity reserved for daily trading</div>
+            </div>
+
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>Adjust Trading Capital</span>
+                    <span>Min: $500 | Max: $5,000</span>
+                </div>
+                <input type="range" id="fundSlider" min="500" max="5000" value="2500" step="100">
+            </div>
+
+            <div class="input-group">
+                <input type="number" id="fundInput" value="2500" min="500" max="5000" step="100" placeholder="Enter amount">
+                <button class="btn btn-primary">Update</button>
+                <button class="btn" style="background: #ddd; color: var(--text);">Cancel</button>
+            </div>
+
+            <div style="margin-top: 15px; padding: 12px; background: var(--bg-light); border-radius: 4px; font-size: 12px; color: #666;">
+                <strong>How it works:</strong> Adjust the slider to set the maximum amount available for the trading algorithm. Higher allocation = potentially larger returns but greater risk. Position sizes are calculated automatically based on this amount.
+            </div>
+        </div>
+
+        <!-- Recent Trades -->
+        <div class="card" style="margin-top: 20px;">
+            <div class="card-title">📈 Recent Trades (Last 10)</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Symbol</th>
+                        <th>Type</th>
+                        <th>Entry Price</th>
+                        <th>Exit Price</th>
+                        <th>P&L</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>14:32</td>
+                        <td><strong>AAPL</strong></td>
+                        <td>BUY 100</td>
+                        <td>$152.30</td>
+                        <td>$153.20</td>
+                        <td class="positive"><strong>+$90</strong></td>
+                        <td><span class="status-badge status-closed">✓ Closed</span></td>
+                    </tr>
+                    <tr>
+                        <td>14:28</td>
+                        <td><strong>MSFT</strong></td>
+                        <td>BUY 50</td>
+                        <td>$370.50</td>
+                        <td>$369.80</td>
+                        <td class="negative"><strong>-$35</strong></td>
+                        <td><span class="status-badge status-closed">✓ Closed</span></td>
+                    </tr>
+                    <tr>
+                        <td>14:15</td>
+                        <td><strong>GOOG</strong></td>
+                        <td>BUY 150</td>
+                        <td>$140.50</td>
+                        <td>$140.80</td>
+                        <td class="positive"><strong>+$45</strong></td>
+                        <td><span class="status-badge status-closed">✓ Closed</span></td>
+                    </tr>
+                    <tr>
+                        <td>14:05</td>
+                        <td><strong>TSLA</strong></td>
+                        <td>BUY 75</td>
+                        <td>$242.10</td>
+                        <td>$241.50</td>
+                        <td class="negative"><strong>-$45</strong></td>
+                        <td><span class="status-badge status-closed">✓ Closed</span></td>
+                    </tr>
+                    <tr>
+                        <td>13:42</td>
+                        <td><strong>NVDA</strong></td>
+                        <td>BUY 100</td>
+                        <td>$98.30</td>
+                        <td>$98.90</td>
+                        <td class="positive"><strong>+$60</strong></td>
+                        <td><span class="status-badge status-closed">✓ Closed</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Algorithm & Alerts -->
+        <div class="grid-2" style="margin-top: 20px;">
+            <div class="card">
+                <div class="card-title">🤖 Algorithm Status</div>
+                <div class="metric">
+                    <div class="metric-label">Strategy</div>
+                    <div class="metric-value" style="font-size: 16px;">Multi-Confirmation Momentum Scalper</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Status</div>
+                    <div class="metric-value" style="font-size: 14px;">
+                        <span class="status-indicator status-running"></span>RUNNING (since 09:30)
+                    </div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Last Signal</div>
+                    <div class="metric-value" style="font-size: 14px;">BUY AAPL @ 14:31 ✓</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Watchlist Size</div>
+                    <div class="metric-value">25 stocks</div>
+                </div>
+                <div class="button-group">
+                    <button class="btn btn-primary">Pause</button>
+                    <button class="btn" style="background: #ddd; color: var(--text);">Settings</button>
+                    <button class="btn" style="background: #ddd; color: var(--text);">Backtest</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">⚠️ Alerts & Warnings</div>
+                <div class="alert-box alert-warning">
+                    <strong>⚠️ Margin Health Alert:</strong> Account at 78% health. Monitor closely to avoid margin call.
+                </div>
+                <div class="alert-box alert-info">
+                    <strong>ℹ️ Tax Notice:</strong> AAPL superficial loss rule active until 2026-02-19
+                </div>
+                <div class="alert-box alert-info">
+                    <strong>ℹ️ System:</strong> 3/3 concurrent positions active. New trades will replace existing ones.
+                </div>
+                <div style="padding: 10px; background: #e8f5e9; border-radius: 4px; color: var(--success); font-size: 13px; font-weight: 600;">
+                    ✓ All systems nominal
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer Navigation -->
+        <div style="margin-top: 40px; padding: 20px; text-align: center; border-top: 1px solid var(--border); color: #999; font-size: 12px;">
+            <button class="btn" style="background: #ddd; margin-right: 10px;">Detailed Analytics</button>
+            <button class="btn" style="background: #ddd; margin-right: 10px;">Settings</button>
+            <button class="btn" style="background: #ddd;">Documentation</button>
+            <p style="margin-top: 15px;">Last Updated: <span id="lastUpdate">Today at 14:35:22</span> | WebSocket Status: <span style="color: var(--success); font-weight: 600;">●Connected</span></p>
+        </div>
+    </div>
+
+    <script>
+        // Real-time updates simulation
+        function updateDashboard() {
+            // Simulate real-time equity update
+            const equity = parseFloat(document.getElementById('equity').innerText.replace('$', ''));
+            const newEquity = equity + (Math.random() - 0.4) * 50;
+            document.getElementById('equity').innerText = '$' + newEquity.toFixed(2);
+
+            // Simulate buying power update
+            const bp = parseFloat(document.getElementById('buyingPower').innerText.replace('$', ''));
+            const newBp = bp + (Math.random() - 0.4) * 100;
+            document.getElementById('buyingPower').innerText = '$' + newBp.toFixed(2);
+
+            // Update timestamp
+            const now = new Date();
+            document.getElementById('lastUpdate').innerText = 'Today at ' + now.toLocaleTimeString();
+        }
+
+        // Sync slider and input
+        const slider = document.getElementById('fundSlider');
+        const input = document.getElementById('fundInput');
+
+        slider.addEventListener('input', (e) => {
+            input.value = e.target.value;
+        });
+
+        input.addEventListener('input', (e) => {
+            slider.value = e.target.value;
+        });
+
+        // Update on load and every 2 seconds
+        updateDashboard();
+        setInterval(updateDashboard, 2000);
+
+        // Close button functionality
+        document.querySelectorAll('.btn-close').forEach(btn => {
+            btn.addEventListener('click', function() {
+                if (confirm('Close this position?')) {
+                    this.parentElement.parentElement.style.opacity = '0.5';
+                    this.disabled = true;
+                    this.innerText = 'Closing...';
+                }
+            });
+        });
+    </script>
+</body>
+</html>
