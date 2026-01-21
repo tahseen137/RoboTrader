@@ -1,0 +1,148 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    # Run every Sunday at midnight UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  secret-detection:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for secret scanning
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+
+      - name: Check for .env files
+        run: |
+          echo "Checking for accidentally committed .env files..."
+          if git ls-files | grep -E '\.env$|\.env\.local$|\.env\.production$'; then
+            echo "❌ ERROR: .env file found in repository!"
+            echo "Please remove it immediately and add to .gitignore"
+            exit 1
+          else
+            echo "✅ No .env files found in repository"
+          fi
+
+      - name: Check for common secrets patterns
+        run: |
+          echo "Scanning for API keys and tokens..."
+          # Check for common secret patterns
+          if git grep -E 'SNAPTRADE_API_KEY=.+|ALPHA_VANTAGE_API_KEY=.+|TELEGRAM_BOT_TOKEN=.+' -- ':!*.example' ':!*.md'; then
+            echo "⚠️  WARNING: Possible API key found in code!"
+            echo "Review the above matches and ensure they're not real credentials"
+            exit 1
+          else
+            echo "✅ No hardcoded API keys detected"
+          fi
+
+  dependency-security:
+    name: Dependency Security Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for package.json (Node.js)
+        id: check-nodejs
+        run: |
+          if [ -f "frontend/package.json" ]; then
+            echo "has_nodejs=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_nodejs=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Node.js
+        if: steps.check-nodejs.outputs.has_nodejs == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Run npm audit
+        if: steps.check-nodejs.outputs.has_nodejs == 'true'
+        working-directory: ./frontend
+        run: |
+          npm audit --audit-level=moderate || echo "⚠️  Vulnerabilities found - review them!"
+
+      - name: Check for Python requirements
+        id: check-python
+        run: |
+          if [ -f "requirements.txt" ] || [ -f "backtest/requirements.txt" ]; then
+            echo "has_python=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_python=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Python
+        if: steps.check-python.outputs.has_python == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Safety
+        if: steps.check-python.outputs.has_python == 'true'
+        run: pip install safety
+
+      - name: Run Python Security Check
+        if: steps.check-python.outputs.has_python == 'true'
+        run: |
+          if [ -f "requirements.txt" ]; then
+            safety check --file requirements.txt || echo "⚠️  Python vulnerabilities found!"
+          fi
+          if [ -f "backtest/requirements.txt" ]; then
+            safety check --file backtest/requirements.txt || echo "⚠️  Python vulnerabilities found!"
+          fi
+
+  docker-security:
+    name: Docker Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for docker-compose.yml
+        id: check-docker
+        run: |
+          if [ -f "docker-compose.yml" ]; then
+            echo "has_docker=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_docker=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Trivy vulnerability scanner
+        if: steps.check-docker.outputs.has_docker == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'table'
+          exit-code: '0'  # Don't fail build, just warn
+
+  summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [secret-detection, dependency-security, docker-security]
+    if: always()
+    steps:
+      - name: Security Scan Complete
+        run: |
+          echo "🔒 Security scan completed!"
+          echo "Check the logs above for any warnings or errors."
+          echo ""
+          echo "✅ Secret Detection: ${{ needs.secret-detection.result }}"
+          echo "✅ Dependency Security: ${{ needs.dependency-security.result }}"
+          echo "✅ Docker Security: ${{ needs.docker-security.result }}"

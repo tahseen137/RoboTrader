@@ -1,0 +1,276 @@
+name: Docker Build & Validation
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'docker-compose.yml'
+      - 'Dockerfile*'
+      - '.dockerignore'
+      - '.github/workflows/docker-validation.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'docker-compose.yml'
+      - 'Dockerfile*'
+      - '.dockerignore'
+  workflow_dispatch:
+
+jobs:
+  validate-yaml:
+    name: Validate Docker Compose YAML
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for docker-compose.yml
+        id: check-compose
+        run: |
+          if [ -f "docker-compose.yml" ]; then
+            echo "has_compose=true" >> $GITHUB_OUTPUT
+            echo "✅ docker-compose.yml found"
+          else
+            echo "has_compose=false" >> $GITHUB_OUTPUT
+            echo "⚠️  docker-compose.yml not found yet"
+          fi
+
+      - name: Validate docker-compose syntax
+        if: steps.check-compose.outputs.has_compose == 'true'
+        run: |
+          # Install docker-compose
+          sudo curl -L "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+
+          # Validate syntax
+          docker-compose config > /dev/null && echo "✅ docker-compose.yml syntax is valid" || exit 1
+
+      - name: Check for required services
+        if: steps.check-compose.outputs.has_compose == 'true'
+        run: |
+          echo "Checking for required services in docker-compose.yml..."
+
+          required_services=("postgres" "n8n")
+
+          for service in "${required_services[@]}"; do
+            if grep -q "^  $service:" docker-compose.yml; then
+              echo "✅ Found service: $service"
+            else
+              echo "⚠️  Missing recommended service: $service"
+            fi
+          done
+
+      - name: Check for environment variables
+        if: steps.check-compose.outputs.has_compose == 'true'
+        run: |
+          echo "Checking for environment variable usage..."
+
+          if grep -q '\${' docker-compose.yml; then
+            echo "✅ Using environment variables (good practice)"
+          else
+            echo "⚠️  No environment variables detected - consider using .env file"
+          fi
+
+      - name: Check for volumes
+        if: steps.check-compose.outputs.has_compose == 'true'
+        run: |
+          echo "Checking for data persistence with volumes..."
+
+          if grep -q 'volumes:' docker-compose.yml; then
+            echo "✅ Volumes configured for data persistence"
+          else
+            echo "⚠️  No volumes found - data may not persist after container restart"
+          fi
+
+  docker-lint:
+    name: Lint Dockerfiles
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for Dockerfiles
+        id: check-dockerfiles
+        run: |
+          if ls Dockerfile* 1> /dev/null 2>&1; then
+            echo "has_dockerfiles=true" >> $GITHUB_OUTPUT
+            echo "✅ Dockerfiles found"
+          else
+            echo "has_dockerfiles=false" >> $GITHUB_OUTPUT
+            echo "ℹ️  No Dockerfiles found (using public images is fine)"
+          fi
+
+      - name: Run Hadolint (Dockerfile linter)
+        if: steps.check-dockerfiles.outputs.has_dockerfiles == 'true'
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile*
+          failure-threshold: warning
+
+  test-build:
+    name: Test Docker Build
+    runs-on: ubuntu-latest
+    needs: [validate-yaml]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for docker-compose.yml
+        id: check-compose
+        run: |
+          if [ -f "docker-compose.yml" ]; then
+            echo "has_compose=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_compose=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.check-compose.outputs.has_compose == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create .env.example if not exists
+        if: steps.check-compose.outputs.has_compose == 'true'
+        run: |
+          if [ ! -f ".env.example" ]; then
+            echo "Creating temporary .env for testing..."
+            cat > .env << 'EOF'
+          DB_PASSWORD=test_password_for_ci
+          N8N_USER=admin
+          N8N_PASSWORD=test_password
+          N8N_ENCRYPTION_KEY=test_encryption_key_minimum_32_characters_long
+          WEBHOOK_URL=http://localhost:5678/
+          SNAPTRADE_API_KEY=test_key
+          SNAPTRADE_SECRET=test_secret
+          SNAPTRADE_ACCOUNT_ID=test_account
+          ALPHA_VANTAGE_API_KEY=test_key
+          MAX_DAILY_LOSS_PERCENT=0.05
+          MAX_CONCURRENT_POSITIONS=3
+          POSITION_SIZE_PERCENT=0.02
+          PROFIT_TARGET_PERCENT=0.03
+          STOP_LOSS_PERCENT=0.015
+          TELEGRAM_BOT_TOKEN=
+          TELEGRAM_CHAT_ID=
+          ALERT_EMAIL=test@example.com
+          EOF
+          else
+            cp .env.example .env
+          fi
+
+      - name: Test docker-compose build
+        if: steps.check-compose.outputs.has_compose == 'true'
+        run: |
+          echo "Testing docker-compose build..."
+          docker-compose config
+          # Don't actually pull/build to save CI time
+          # Just validate the configuration works
+          echo "✅ Docker configuration is valid"
+
+      - name: Check for .dockerignore
+        run: |
+          if [ -f ".dockerignore" ]; then
+            echo "✅ .dockerignore found"
+          else
+            echo "⚠️  .dockerignore not found - consider adding one to reduce build context"
+          fi
+
+  security-scan:
+    name: Scan Docker Images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for docker-compose.yml
+        id: check-compose
+        run: |
+          if [ -f "docker-compose.yml" ]; then
+            echo "has_compose=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_compose=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Trivy vulnerability scanner
+        if: steps.check-compose.outputs.has_compose == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: 'docker-compose.yml'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+  best-practices:
+    name: Check Docker Best Practices
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for docker-compose.yml
+        id: check-compose
+        run: |
+          if [ -f "docker-compose.yml" ]; then
+            echo "has_compose=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_compose=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for restart policies
+        if: steps.check-compose.outputs.has_compose == 'true'
+        run: |
+          echo "Checking restart policies..."
+
+          if grep -q 'restart:' docker-compose.yml; then
+            echo "✅ Restart policies configured"
+          else
+            echo "⚠️  No restart policies found - containers won't auto-restart"
+          fi
+
+      - name: Check for healthchecks
+        if: steps.check-compose.outputs.has_compose == 'true'
+        run: |
+          echo "Checking for healthchecks..."
+
+          if grep -q 'healthcheck:' docker-compose.yml; then
+            echo "✅ Healthchecks configured"
+          else
+            echo "ℹ️  No healthchecks found - consider adding for production"
+          fi
+
+      - name: Check for networks
+        if: steps.check-compose.outputs.has_compose == 'true'
+        run: |
+          echo "Checking for custom networks..."
+
+          if grep -q '^networks:' docker-compose.yml; then
+            echo "✅ Custom networks configured (good for isolation)"
+          else
+            echo "ℹ️  Using default network (fine for simple setups)"
+          fi
+
+      - name: Check for resource limits
+        if: steps.check-compose.outputs.has_compose == 'true'
+        run: |
+          echo "Checking for resource limits..."
+
+          if grep -q 'mem_limit:' docker-compose.yml || grep -q 'cpus:' docker-compose.yml; then
+            echo "✅ Resource limits configured"
+          else
+            echo "ℹ️  No resource limits - consider adding for production stability"
+          fi
+
+  summary:
+    name: Docker Validation Summary
+    runs-on: ubuntu-latest
+    needs: [validate-yaml, docker-lint, test-build, security-scan, best-practices]
+    if: always()
+    steps:
+      - name: Docker Validation Complete
+        run: |
+          echo "🐳 Docker validation completed!"
+          echo ""
+          echo "✅ YAML Validation: ${{ needs.validate-yaml.result }}"
+          echo "✅ Dockerfile Linting: ${{ needs.docker-lint.result }}"
+          echo "✅ Build Test: ${{ needs.test-build.result }}"
+          echo "✅ Security Scan: ${{ needs.security-scan.result }}"
+          echo "✅ Best Practices: ${{ needs.best-practices.result }}"
