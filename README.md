@@ -104,7 +104,7 @@ RoboTrader/
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/RoboTrader.git
+git clone https://github.com/tahseen137/RoboTrader.git
 cd RoboTrader
 
 # Create environment file
