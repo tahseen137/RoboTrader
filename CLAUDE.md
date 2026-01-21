@@ -16,8 +16,9 @@ RoboTrader is an automated day trading system designed for Wealthsimple margin a
 1. **n8n Workflow Engine** - Core automation orchestrator (5 workflows)
 2. **React Dashboard** - Real-time monitoring and control interface
 3. **PostgreSQL Database** - Trade history, positions, tax lots, metrics
-4. **SnapTrade API** - Wealthsimple account integration
-5. **Alpha Vantage API** - Real-time market data (5-min candles)
+4. **SnapTrade API** - Wealthsimple account integration (trading & account data)
+5. **Finnhub API** - Real-time market data (WebSocket streaming, live quotes)
+6. **Alpha Vantage API** - Historical data & backtesting (50+ pre-calculated indicators)
 
 ### Trading Strategy
 
@@ -64,7 +65,7 @@ RoboTrader/
 ### Workflow 1: Market Scanner
 - **Trigger**: Every 5 minutes (9:30 AM - 4:00 PM EST, Mon-Fri)
 - **Purpose**: Scan watchlist stocks, calculate indicators, generate signals
-- **Data Source**: Alpha Vantage API
+- **Data Source**: Finnhub API (real-time candles)
 - **Output**: Trading signals to Workflow 2
 
 **Technical Indicators Calculated**:
@@ -152,13 +153,25 @@ alerts (alert_id, account_id, alert_type, severity, message, acknowledged)
   - `POST /accounts/{id}/orders` - Place orders
   - `GET /accounts/{id}/orders/{order_id}` - Order status
 - **Auth**: Bearer token (OAuth 2.0)
+- **Note**: Does NOT provide reliable real-time market data
 
-### Alpha Vantage API
-- **Purpose**: Real-time and historical market data
+### Finnhub API (Real-time Market Data)
+- **Purpose**: Real-time quotes, WebSocket streaming, intraday candles
 - **Endpoints Used**:
-  - `TIME_SERIES_INTRADAY` - 5-minute candles
-  - `GLOBAL_QUOTE` - Latest price
-- **Rate Limit**: 5 calls/minute (free tier)
+  - `GET /quote` - Real-time stock quote
+  - `GET /stock/candle` - Intraday/daily candles (OHLCV)
+  - `WebSocket wss://ws.finnhub.io` - Live price streaming
+- **Rate Limit**: 60 calls/minute (free tier)
+- **Free Tier Includes**: WebSocket streaming for real-time prices
+
+### Alpha Vantage API (Historical & Backtesting)
+- **Purpose**: Historical data, pre-calculated indicators, backtesting
+- **Endpoints Used**:
+  - `TIME_SERIES_DAILY` - Daily historical data (20+ years)
+  - `SMA`, `RSI`, `ADX`, `BBANDS` - Pre-calculated indicators
+  - `TIME_SERIES_INTRADAY` - Historical intraday data
+- **Rate Limit**: 25 calls/day OR 5 calls/minute (free tier)
+- **Best For**: Strategy backtesting, historical analysis
 
 ### Telegram API (Alerts)
 - **Purpose**: Real-time trade notifications
@@ -169,12 +182,16 @@ alerts (alert_id, account_id, alert_type, severity, message, acknowledged)
 ## Environment Variables
 
 ```env
-# SnapTrade API
+# SnapTrade API (Trading & Account)
 SNAPTRADE_API_KEY=your_key
 SNAPTRADE_SECRET=your_secret
 SNAPTRADE_ACCOUNT_ID=your_account_id
 
-# Alpha Vantage
+# Finnhub API (Real-time Data)
+FINNHUB_API_KEY=your_key
+FINNHUB_WEBSOCKET_ENABLED=true
+
+# Alpha Vantage API (Historical & Backtesting)
 ALPHA_VANTAGE_API_KEY=your_key
 
 # Database
@@ -304,12 +321,20 @@ The static HTML prototype demonstrates:
 - **Chosen**: SnapTrade API
 - **Why**: Wealthsimple has no official public API; SnapTrade provides authorized broker integration
 
-### 3. Alpha Vantage vs Other Data Providers
-- **Chosen**: Alpha Vantage
-- **Why**:
-  - Free tier available (5 calls/min)
-  - 5-minute intraday candles
-  - Good n8n integration examples
+### 3. Dual Market Data Provider Architecture
+- **Chosen**: Finnhub (real-time) + Alpha Vantage (historical)
+- **Why Finnhub for Real-time**:
+  - WebSocket streaming for instant price updates
+  - 60 API calls/minute (vs 5 for Alpha Vantage)
+  - Better for position monitoring and stop-loss execution
+- **Why Alpha Vantage for Historical**:
+  - 50+ pre-calculated technical indicators
+  - 20+ years of historical data
+  - Best for backtesting and strategy optimization
+- **Why Not Just One Provider**:
+  - SnapTrade recommends using dedicated market data providers
+  - Finnhub lacks pre-calculated indicators for backtesting
+  - Alpha Vantage rate limits are too restrictive for real-time
 
 ### 4. PostgreSQL vs Other Databases
 - **Chosen**: PostgreSQL
