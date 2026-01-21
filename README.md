@@ -6,6 +6,9 @@
 
 ![Project Status](https://img.shields.io/badge/status-design%20phase-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+![CI](https://github.com/YOUR_USERNAME/RoboTrader/actions/workflows/ci.yml/badge.svg)
+![Security](https://github.com/YOUR_USERNAME/RoboTrader/actions/workflows/security-scan.yml/badge.svg)
+![Documentation](https://github.com/YOUR_USERNAME/RoboTrader/actions/workflows/documentation.yml/badge.svg)
 
 ---
 
