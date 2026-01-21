@@ -1,0 +1,239 @@
+# ============================================================================
+# ROBOTRADER - Automated Day Trading System
+# ============================================================================
+# Docker Compose configuration for n8n workflow automation + PostgreSQL
+#
+# Services:
+# - postgres: Database for trades, positions, metrics
+# - n8n: Workflow automation engine
+#
+# Usage:
+#   docker-compose up -d          # Start in background
+#   docker-compose logs -f        # View logs
+#   docker-compose down           # Stop containers
+#   docker-compose ps             # Check status
+#
+# Prerequisites:
+# 1. Copy .env.example to .env and configure
+# 2. Ensure Docker Desktop is running
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL Database
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: trading_postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${DB_USER:-n8n}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-wealthsimple_trader}
+      # Performance tuning
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
+      POSTGRES_MAX_CONNECTIONS: ${DB_POOL_SIZE:-20}
+
+    volumes:
+      # Persistent data storage
+      - postgres_data:/var/lib/postgresql/data
+      # Initialization scripts (run on first startup)
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+    ports:
+      - "5432:5432"
+
+    networks:
+      - trading_network
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-n8n} -d ${DB_NAME:-wealthsimple_trader}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    # Resource limits (adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # --------------------------------------------------------------------------
+  # n8n Workflow Automation
+  # --------------------------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: trading_n8n
+    restart: unless-stopped
+
+    ports:
+      - "5678:5678"
+
+    environment:
+      # Basic Authentication
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+
+      # Database Configuration
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=${DB_PORT:-5432}
+      - DB_POSTGRESDB_DATABASE=${DB_NAME:-wealthsimple_trader}
+      - DB_POSTGRESDB_USER=${DB_USER:-n8n}
+      - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD}
+
+      # Security
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # Webhook Configuration
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+      - N8N_EDITOR_BASE_URL=${WEBHOOK_URL:-http://localhost:5678/}
+
+      # Timezone
+      - GENERIC_TIMEZONE=${TIMEZONE:-America/Toronto}
+      - TZ=${TIMEZONE:-America/Toronto}
+
+      # Logging
+      - N8N_LOG_LEVEL=${N8N_LOG_LEVEL:-info}
+      - N8N_LOG_OUTPUT=console
+
+      # Execution Settings
+      - EXECUTIONS_PROCESS=${N8N_EXECUTIONS_PROCESS:-main}
+      - EXECUTIONS_MODE=${N8N_EXECUTIONS_MODE:-regular}
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
+
+      # Performance
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=10
+
+      # Features
+      - N8N_METRICS=true
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=true
+
+    volumes:
+      # n8n data persistence (workflows, credentials, settings)
+      - n8n_data:/home/node/.n8n
+      # Local files access (optional - for file operations)
+      - ./n8n-local:/files
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - trading_network
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+# ----------------------------------------------------------------------------
+# Networks
+# ----------------------------------------------------------------------------
+networks:
+  trading_network:
+    driver: bridge
+    name: robotrader_network
+
+# ----------------------------------------------------------------------------
+# Volumes (Persistent Data Storage)
+# ----------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    name: robotrader_postgres_data
+    driver: local
+
+  n8n_data:
+    name: robotrader_n8n_data
+    driver: local
+
+# ============================================================================
+# USAGE EXAMPLES
+# ============================================================================
+#
+# Start all services:
+#   docker-compose up -d
+#
+# View logs (all services):
+#   docker-compose logs -f
+#
+# View logs (specific service):
+#   docker-compose logs -f n8n
+#   docker-compose logs -f postgres
+#
+# Check service status:
+#   docker-compose ps
+#
+# Stop all services:
+#   docker-compose down
+#
+# Stop and remove volumes (⚠️  deletes all data):
+#   docker-compose down -v
+#
+# Restart a service:
+#   docker-compose restart n8n
+#   docker-compose restart postgres
+#
+# Execute command in container:
+#   docker-compose exec postgres psql -U n8n -d wealthsimple_trader
+#   docker-compose exec n8n /bin/sh
+#
+# Update images:
+#   docker-compose pull
+#   docker-compose up -d
+#
+# Access n8n:
+#   http://localhost:5678
+#   Username: (from .env N8N_USER)
+#   Password: (from .env N8N_PASSWORD)
+#
+# ============================================================================
+# TROUBLESHOOTING
+# ============================================================================
+#
+# Containers won't start:
+#   - Check .env file exists and has all required variables
+#   - Verify Docker Desktop is running
+#   - Check logs: docker-compose logs
+#
+# Database connection errors:
+#   - Wait for healthcheck: docker-compose ps
+#   - Check postgres logs: docker-compose logs postgres
+#   - Verify DB_PASSWORD is set correctly in .env
+#
+# n8n not accessible:
+#   - Check if container is running: docker-compose ps
+#   - Verify port 5678 is not in use: netstat -an | grep 5678
+#   - Check n8n logs: docker-compose logs n8n
+#
+# Out of memory errors:
+#   - Increase Docker Desktop memory allocation
+#   - Reduce resource limits in this file
+#
+# Permission errors:
+#   - On Linux/Mac: sudo chown -R $USER:$USER n8n_data postgres_data
+#   - On Windows: Run Docker Desktop as administrator
+#
+# ============================================================================

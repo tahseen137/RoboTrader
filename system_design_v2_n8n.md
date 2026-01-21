@@ -64,12 +64,11 @@ This document outlines a complete automated day trading system with **n8n workfl
 │                          │                                        │
 │      ┌───────────────────┼───────────────┐                       │
 │      │                   │               │                       │
-│  ┌───▼────┐   ┌──────────▼───┐   ┌─────▼──────┐               │
-│  │Alpha   │   │  SnapTrade   │   │PostgreSQL  │               │
-│  │Vantage │   │  API Client  │   │  Database  │               │
-│  │(Market │   │(Wealthsimple)│   │            │               │
-│  │ Data)  │   └──────────────┘   └────────────┘               │
-│  └────────┘                                                      │
+│  ┌───▼────┐   ┌───▼────┐   ┌──────────▼───┐   ┌─────▼──────┐ │
+│  │Finnhub │   │Alpha   │   │  SnapTrade   │   │PostgreSQL  │ │
+│  │(Real-  │   │Vantage │   │  API Client  │   │  Database  │ │
+│  │ time)  │   │(Hist)  │   │(Wealthsimple)│   │            │ │
+│  └────────┘   └────────┘   └──────────────┘   └────────────┘ │                                                      │
 │                                                                   │
 │      ┌───────────────────▼──────────────┐                       │
 │      │   Wealthsimple Margin Account    │                       │
@@ -92,7 +91,7 @@ This document outlines a complete automated day trading system with **n8n workfl
 **n8n Nodes:**
 1. **Schedule Trigger** - Executes every 5 minutes during market hours (9:30 AM - 4:00 PM EST)
 2. **PostgreSQL Node** - Fetch watchlist symbols and algorithm config
-3. **HTTP Request Node** - Call Alpha Vantage API for each symbol (5-minute candles)
+3. **HTTP Request Node** - Call Finnhub API for each symbol (real-time candles)
 4. **Code Node (JavaScript)** - Calculate technical indicators:
    - SMA (10, 30)
    - RSI (14)
@@ -147,11 +146,13 @@ This document outlines a complete automated day trading system with **n8n workfl
 
 **Purpose:** Monitor open positions for exit conditions
 
+**Data Source:** Finnhub API (real-time quotes for faster stop-loss execution)
+
 **n8n Nodes:**
 1. **Schedule Trigger** - Every 1 minute during market hours
 2. **PostgreSQL Node** - Fetch all open positions
 3. **Loop Node** - Iterate through each position
-4. **HTTP Request Node** - Get current price from Alpha Vantage (latest quote)
+4. **HTTP Request Node** - Get current price from Finnhub `/quote` (real-time)
 5. **Code Node** - Calculate unrealized P&L
 6. **IF Node** - Check exit conditions:
    - **Take Profit:** Current price >= profit target
@@ -163,6 +164,8 @@ This document outlines a complete automated day trading system with **n8n workfl
 10. **PostgreSQL Node** - Update daily metrics
 11. **PostgreSQL Node** - Close tax lot
 12. **Telegram Node** - Send exit notification
+
+**Note:** For even faster position monitoring, a separate WebSocket service can be implemented to stream prices directly from Finnhub WebSocket (`wss://ws.finnhub.io`).
 
 **Trailing Stop Logic (Code Node):**
 ```javascript
@@ -307,13 +310,19 @@ docker-compose up -d
 Create `.env` file in n8n:
 
 ```env
-# SnapTrade API
+# SnapTrade API (Trading & Account Data)
 SNAPTRADE_API_KEY=your_key_here
 SNAPTRADE_SECRET=your_secret_here
 SNAPTRADE_BASE_URL=https://api.snaptrade.com
 SNAPTRADE_ACCOUNT_ID=your_account_id
 
-# Alpha Vantage (Market Data)
+# Finnhub API (Real-time Market Data)
+FINNHUB_API_KEY=your_key_here
+FINNHUB_BASE_URL=https://finnhub.io/api/v1
+FINNHUB_WEBSOCKET_URL=wss://ws.finnhub.io
+FINNHUB_WEBSOCKET_ENABLED=true
+
+# Alpha Vantage API (Historical Data & Backtesting)
 ALPHA_VANTAGE_API_KEY=your_key_here
 ALPHA_VANTAGE_BASE_URL=https://www.alphavantage.co/query
 
