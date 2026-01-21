@@ -1,0 +1,568 @@
+{
+  "name": "3. Position Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 1 Minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ new Date().getDay() }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "leftValue": "={{ new Date().getDay() }}",
+              "rightValue": 6,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "leftValue": "={{ new Date().getHours() }}",
+              "rightValue": 9,
+              "operator": {
+                "type": "number",
+                "operation": "largerEqual"
+              }
+            },
+            {
+              "leftValue": "={{ new Date().getHours() }}",
+              "rightValue": 16,
+              "operator": {
+                "type": "number",
+                "operation": "smaller"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-market-hours",
+      "name": "Check Market Hours",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "stop-execution",
+              "name": "message",
+              "value": "Market closed - no monitoring",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "market-closed",
+      "name": "Market Closed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        680,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  p.position_id,\n  p.symbol,\n  p.quantity,\n  p.entry_price,\n  p.current_price,\n  p.unrealized_pnl,\n  p.created_at,\n  t.trade_id\nFROM positions p\nJOIN trades t ON p.symbol = t.symbol AND t.status = 'OPEN' AND t.account_id = p.account_id\nWHERE p.account_id = 1 \n  AND p.status = 'OPEN'\nORDER BY p.created_at ASC;",
+        "options": {}
+      },
+      "id": "fetch-open-positions",
+      "name": "Fetch Open Positions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        680,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://finnhub.io/api/v1/quote?symbol={{ $json.symbol }}&token={{ $env.FINNHUB_API_KEY }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "options": {}
+      },
+      "id": "fetch-current-price",
+      "name": "Fetch Current Price (Finnhub)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate P&L and check exit conditions\nconst position = $input.item.json;\nconst currentPrice = $input.item.json.c; // Finnhub returns current price as 'c'\nconst entryPrice = position.entry_price;\nconst quantity = position.quantity;\n\n// Calculate unrealized P&L\nconst unrealizedPnl = (currentPrice - entryPrice) * quantity;\nconst pnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;\n\n// Exit conditions\nconst profitTarget = parseFloat(process.env.PROFIT_TARGET_PERCENT || 0.03) * 100; // 3%\nconst stopLoss = parseFloat(process.env.STOP_LOSS_PERCENT || 0.015) * 100; // 1.5%\n\n// Take Profit: >= 3%\nconst takeProfitHit = pnlPercent >= profitTarget;\n\n// Stop Loss: <= -1.5%\nconst stopLossHit = pnlPercent <= -stopLoss;\n\n// Trailing Stop: After 1% profit, exit on 0.5% pullback\nconst trailingStopActivated = pnlPercent >= 1;\nconst highPrice = position.high_price || entryPrice; // Track highest price\nconst pullback = ((highPrice - currentPrice) / highPrice) * 100;\nconst trailingStopHit = trailingStopActivated && pullback >= 0.5;\n\nconst shouldExit = takeProfitHit || stopLossHit || trailingStopHit;\n\nlet exitReason = '';\nif (takeProfitHit) exitReason = 'TAKE_PROFIT';\nelse if (stopLossHit) exitReason = 'STOP_LOSS';\nelse if (trailingStopHit) exitReason = 'TRAILING_STOP';\n\nreturn {\n  json: {\n    position_id: position.position_id,\n    trade_id: position.trade_id,\n    symbol: position.symbol,\n    quantity,\n    entryPrice,\n    currentPrice,\n    unrealizedPnl,\n    pnlPercent,\n    shouldExit,\n    exitReason,\n    highPrice: Math.max(highPrice, currentPrice)\n  }\n};"
+      },
+      "id": "calculate-pnl",
+      "name": "Calculate P&L and Exit Conditions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE positions\nSET \n  current_price = {{ $json.currentPrice }},\n  unrealized_pnl = {{ $json.unrealizedPnl }},\n  high_price = {{ $json.highPrice }},\n  updated_at = NOW()\nWHERE position_id = {{ $json.position_id }};",
+        "options": {}
+      },
+      "id": "update-position-price",
+      "name": "Update Position Price",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1340,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "exit-check",
+              "leftValue": "={{ $json.shouldExit }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-exit-conditions",
+      "name": "Check Exit Conditions",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "hold-message",
+              "name": "action",
+              "value": "HOLD",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "hold-position",
+      "name": "Hold Position",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.snaptrade.com/api/v1/accounts/{{ $env.SNAPTRADE_ACCOUNT_ID }}/orders",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SNAPTRADE_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $json.symbol }}"
+            },
+            {
+              "name": "action",
+              "value": "SELL"
+            },
+            {
+              "name": "quantity",
+              "value": "={{ $json.quantity }}"
+            },
+            {
+              "name": "order_type",
+              "value": "MARKET"
+            },
+            {
+              "name": "time_in_force",
+              "value": "DAY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "place-sell-order",
+      "name": "Place Sell Order (SnapTrade)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE trades\nSET \n  exit_price = {{ $json.currentPrice }},\n  profit_loss = {{ $json.unrealizedPnl }},\n  exit_reason = '{{ $json.exitReason }}',\n  status = 'CLOSED',\n  closed_at = NOW()\nWHERE trade_id = {{ $json.trade_id }}\nRETURNING trade_id, profit_loss;",
+        "options": {}
+      },
+      "id": "close-trade",
+      "name": "Close Trade Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2000,
+        60
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE positions\nSET \n  status = 'CLOSED',\n  realized_pnl = {{ $json.unrealizedPnl }},\n  closed_at = NOW()\nWHERE position_id = {{ $json.position_id }}\nRETURNING position_id;",
+        "options": {}
+      },
+      "id": "close-position",
+      "name": "Close Position Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2220,
+        60
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO daily_metrics (\n  account_id,\n  trade_date,\n  trades_executed,\n  total_pnl,\n  win_count,\n  loss_count\n)\nVALUES (\n  1,\n  CURRENT_DATE,\n  1,\n  {{ $json.profit_loss }},\n  CASE WHEN {{ $json.profit_loss }} > 0 THEN 1 ELSE 0 END,\n  CASE WHEN {{ $json.profit_loss }} < 0 THEN 1 ELSE 0 END\n)\nON CONFLICT (account_id, trade_date)\nDO UPDATE SET\n  trades_executed = daily_metrics.trades_executed + 1,\n  total_pnl = daily_metrics.total_pnl + {{ $json.profit_loss }},\n  win_count = daily_metrics.win_count + CASE WHEN {{ $json.profit_loss }} > 0 THEN 1 ELSE 0 END,\n  loss_count = daily_metrics.loss_count + CASE WHEN {{ $json.profit_loss }} < 0 THEN 1 ELSE 0 END;",
+        "options": {}
+      },
+      "id": "update-daily-metrics",
+      "name": "Update Daily Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2440,
+        60
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.profit_loss > 0 ? '🟢' : '🔴' }} *POSITION CLOSED*\\n\\n*Symbol:* {{ $json.symbol }}\\n*Exit Reason:* {{ $json.exitReason }}\\n*Entry:* ${{ $json.entryPrice.toFixed(2) }}\\n*Exit:* ${{ $json.currentPrice.toFixed(2) }}\\n*P&L:* ${{ $json.profit_loss.toFixed(2) }} ({{ $json.pnlPercent.toFixed(2) }}%)\\n\\n_Trade ID: {{ $json.trade_id }}_"
+            },
+            {
+              "name": "parse_mode",
+              "value": "Markdown"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-telegram-notification",
+      "name": "Send Telegram Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tax-tracking",
+        "options": {}
+      },
+      "id": "trigger-tax-tracking",
+      "name": "Trigger Tax Tracking Workflow",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        60
+      ],
+      "webhookId": "position-monitor-to-tax"
+    }
+  ],
+  "connections": {
+    "Every 1 Minute": {
+      "main": [
+        [
+          {
+            "node": "Check Market Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Market Hours": {
+      "main": [
+        [
+          {
+            "node": "Fetch Open Positions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Market Closed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Open Positions": {
+      "main": [
+        [
+          {
+            "node": "Fetch Current Price (Finnhub)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Current Price (Finnhub)": {
+      "main": [
+        [
+          {
+            "node": "Calculate P&L and Exit Conditions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate P&L and Exit Conditions": {
+      "main": [
+        [
+          {
+            "node": "Update Position Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Position Price": {
+      "main": [
+        [
+          {
+            "node": "Check Exit Conditions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Exit Conditions": {
+      "main": [
+        [
+          {
+            "node": "Place Sell Order (SnapTrade)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hold Position",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Place Sell Order (SnapTrade)": {
+      "main": [
+        [
+          {
+            "node": "Close Trade Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Close Trade Record": {
+      "main": [
+        [
+          {
+            "node": "Close Position Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Close Position Record": {
+      "main": [
+        [
+          {
+            "node": "Update Daily Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Daily Metrics": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Notification": {
+      "main": [
+        [
+          {
+            "node": "Trigger Tax Tracking Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-20T00:00:00.000Z",
+  "versionId": "1"
+}

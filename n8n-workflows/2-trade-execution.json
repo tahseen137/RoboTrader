@@ -1,0 +1,687 @@
+{
+  "name": "2. Trade Execution",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trade-execution",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "trade-execution-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  COALESCE(SUM(profit_loss), 0) as total_pnl,\n  (SELECT margin_balance FROM accounts WHERE account_id = 1 LIMIT 1) as balance\nFROM trades \nWHERE account_id = 1 \n  AND DATE(created_at) = CURRENT_DATE;",
+        "options": {}
+      },
+      "id": "check-daily-loss",
+      "name": "Check Daily Loss Limit",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        460,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if daily loss exceeds 5% limit\nconst totalPnl = $input.item.json.total_pnl || 0;\nconst balance = $input.item.json.balance || 10000;\nconst maxDailyLoss = balance * parseFloat(process.env.MAX_DAILY_LOSS_PERCENT || 0.05);\n\nconst lossPercent = (totalPnl / balance) * 100;\n\nreturn {\n  json: {\n    totalPnl,\n    balance,\n    maxDailyLoss,\n    lossPercent,\n    exceedsLimit: totalPnl < -maxDailyLoss,\n    signal: $input.item.json\n  }\n};"
+      },
+      "id": "calculate-daily-loss",
+      "name": "Calculate Daily Loss",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "loss-check",
+              "leftValue": "={{ $json.exceedsLimit }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "daily-loss-gate",
+      "name": "Daily Loss Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT margin_health_score, buying_power\nFROM accounts\nWHERE account_id = 1\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "check-margin-health",
+      "name": "Check Margin Health",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1120,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "margin-threshold",
+              "leftValue": "={{ $json.margin_health_score }}",
+              "rightValue": 150,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "margin-health-gate",
+      "name": "Margin Health Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT COUNT(*) as position_count\nFROM positions\nWHERE account_id = 1 AND status = 'OPEN';",
+        "options": {}
+      },
+      "id": "check-concurrent-positions",
+      "name": "Check Concurrent Positions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1560,
+        60
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "max-positions",
+              "leftValue": "={{ $json.position_count }}",
+              "rightValue": "={{ $env.MAX_CONCURRENT_POSITIONS || 3 }}",
+              "operator": {
+                "type": "number",
+                "operation": "smaller"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "concurrent-positions-gate",
+      "name": "Concurrent Positions Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT COUNT(*) as superficial_count\nFROM trades\nWHERE account_id = 1\n  AND symbol = '{{ $json.signal.symbol }}'\n  AND side = 'SELL'\n  AND created_at >= NOW() - INTERVAL '30 days'\n  AND profit_loss < 0;",
+        "options": {}
+      },
+      "id": "check-superficial-loss",
+      "name": "Check Superficial Loss (30-day)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2000,
+        -60
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "no-superficial",
+              "leftValue": "={{ $json.superficial_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "superficial-loss-gate",
+      "name": "Superficial Loss Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate position size (2% of account equity)\nconst balance = $input.item.json.balance || 10000;\nconst positionSizePercent = parseFloat(process.env.POSITION_SIZE_PERCENT || 0.02);\nconst currentPrice = $input.item.json.signal.currentPrice;\n\nconst positionValue = balance * positionSizePercent;\nconst quantity = Math.floor(positionValue / currentPrice);\n\nif (quantity < 1) {\n  return { json: { error: 'Position size too small', quantity: 0 } };\n}\n\nreturn {\n  json: {\n    symbol: $input.item.json.signal.symbol,\n    quantity,\n    currentPrice,\n    positionValue,\n    accountBalance: balance\n  }\n};"
+      },
+      "id": "calculate-position-size",
+      "name": "Calculate Position Size",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.snaptrade.com/api/v1/accounts/{{ $env.SNAPTRADE_ACCOUNT_ID }}/orders",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SNAPTRADE_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $json.symbol }}"
+            },
+            {
+              "name": "action",
+              "value": "BUY"
+            },
+            {
+              "name": "quantity",
+              "value": "={{ $json.quantity }}"
+            },
+            {
+              "name": "order_type",
+              "value": "MARKET"
+            },
+            {
+              "name": "time_in_force",
+              "value": "DAY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "place-order-snaptrade",
+      "name": "Place Order (SnapTrade)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO trades (\n  account_id,\n  symbol,\n  side,\n  quantity,\n  entry_price,\n  status,\n  created_at\n)\nVALUES (\n  1,\n  '{{ $json.symbol }}',\n  'BUY',\n  {{ $json.quantity }},\n  {{ $json.currentPrice }},\n  'OPEN',\n  NOW()\n)\nRETURNING trade_id;",
+        "options": {}
+      },
+      "id": "log-trade",
+      "name": "Log Trade to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2880,
+        -180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO positions (\n  account_id,\n  symbol,\n  quantity,\n  entry_price,\n  current_price,\n  unrealized_pnl,\n  status,\n  created_at\n)\nVALUES (\n  1,\n  '{{ $json.symbol }}',\n  {{ $json.quantity }},\n  {{ $json.currentPrice }},\n  {{ $json.currentPrice }},\n  0,\n  'OPEN',\n  NOW()\n)\nRETURNING position_id;",
+        "options": {}
+      },
+      "id": "create-position",
+      "name": "Create Position Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        3100,
+        -180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "=🟢 *TRADE EXECUTED*\\n\\n*Symbol:* {{ $json.symbol }}\\n*Action:* BUY\\n*Quantity:* {{ $json.quantity }}\\n*Price:* ${{ $json.currentPrice.toFixed(2) }}\\n*Value:* ${{ $json.positionValue.toFixed(2) }}\\n\\n_Trade ID: {{ $json.trade_id }}_"
+            },
+            {
+              "name": "parse_mode",
+              "value": "Markdown"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-telegram-notification",
+      "name": "Send Telegram Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3320,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rejection-reason",
+              "name": "reason",
+              "value": "Daily loss limit exceeded",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "reject-daily-loss",
+      "name": "Reject - Daily Loss",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        1120,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rejection-reason",
+              "name": "reason",
+              "value": "Margin health too low",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "reject-margin-health",
+      "name": "Reject - Margin Health",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rejection-reason",
+              "name": "reason",
+              "value": "Max concurrent positions reached",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "reject-max-positions",
+      "name": "Reject - Max Positions",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        2000,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rejection-reason",
+              "name": "reason",
+              "value": "Superficial loss rule violation (30-day)",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "reject-superficial-loss",
+      "name": "Reject - Superficial Loss",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        2440,
+        60
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Daily Loss Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Daily Loss Limit": {
+      "main": [
+        [
+          {
+            "node": "Calculate Daily Loss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Daily Loss": {
+      "main": [
+        [
+          {
+            "node": "Daily Loss Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Loss Gate": {
+      "main": [
+        [
+          {
+            "node": "Check Margin Health",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject - Daily Loss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Margin Health": {
+      "main": [
+        [
+          {
+            "node": "Margin Health Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Margin Health Gate": {
+      "main": [
+        [
+          {
+            "node": "Check Concurrent Positions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject - Margin Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Concurrent Positions": {
+      "main": [
+        [
+          {
+            "node": "Concurrent Positions Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Concurrent Positions Gate": {
+      "main": [
+        [
+          {
+            "node": "Check Superficial Loss (30-day)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject - Max Positions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Superficial Loss (30-day)": {
+      "main": [
+        [
+          {
+            "node": "Superficial Loss Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Superficial Loss Gate": {
+      "main": [
+        [
+          {
+            "node": "Calculate Position Size",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject - Superficial Loss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Position Size": {
+      "main": [
+        [
+          {
+            "node": "Place Order (SnapTrade)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Place Order (SnapTrade)": {
+      "main": [
+        [
+          {
+            "node": "Log Trade to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Trade to Database": {
+      "main": [
+        [
+          {
+            "node": "Create Position Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Position Record": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-20T00:00:00.000Z",
+  "versionId": "1"
+}
