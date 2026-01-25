@@ -122,19 +122,31 @@
     },
     {
       "parameters": {
-        "url": "=https://finnhub.io/api/v1/stock/candle?symbol={{ $json.symbol }}&resolution=5&from={{ Math.floor(Date.now() / 1000) - 86400 }}&to={{ Math.floor(Date.now() / 1000) }}&token={{ $env.FINNHUB_API_KEY }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpQueryAuth",
+        "url": "=https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={{ $json.symbol }}&interval=5min&apikey=2GIRY0GZYZWPW148&outputsize=compact",
+        "authentication": "none",
         "sendQuery": false,
         "sendHeaders": false,
         "options": {}
       },
       "id": "fetch-candle-data",
-      "name": "Fetch Candle Data (Finnhub)",
+      "name": "Fetch Candle Data (Alpha Vantage)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
         900,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform Alpha Vantage to Finnhub format\nconst timeSeries = $input.item.json['Time Series (5min)'];\nconst symbol = $input.item.json.symbol;\n\nif (!timeSeries) {\n  return { json: { symbol, error: 'No data from Alpha Vantage' } };\n}\n\nconst entries = Object.entries(timeSeries);\nconst candles = {\n  symbol,\n  c: [],\n  h: [],\n  l: [],\n  v: []\n};\n\nentries.forEach(([time, data]) => {\n  candles.c.push(parseFloat(data['4. close']));\n  candles.h.push(parseFloat(data['2. high']));\n  candles.l.push(parseFloat(data['3. low']));\n  candles.v.push(parseFloat(data['5. volume']));\n});\n\nreturn { json: candles };"
+      },
+      "id": "transform-alphavantage",
+      "name": "Transform Alpha Vantage Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
         180
       ]
     },
@@ -298,7 +310,7 @@
       "main": [
         [
           {
-            "node": "Fetch Candle Data (Finnhub)",
+            "node": "Fetch Candle Data (Alpha Vantage)",
             "type": "main",
             "index": 0
           }
@@ -312,7 +324,18 @@
         ]
       ]
     },
-    "Fetch Candle Data (Finnhub)": {
+    "Fetch Candle Data (Alpha Vantage)": {
+      "main": [
+        [
+          {
+            "node": "Transform Alpha Vantage Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Alpha Vantage Data": {
       "main": [
         [
           {

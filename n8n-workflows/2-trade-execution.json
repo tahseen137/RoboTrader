@@ -20,7 +20,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT \n  COALESCE(SUM(profit_loss), 0) as total_pnl,\n  (SELECT margin_balance FROM accounts WHERE account_id = 1 LIMIT 1) as balance\nFROM trades \nWHERE account_id = 1 \n  AND DATE(created_at) = CURRENT_DATE;",
+        "query": "SELECT \n  COALESCE(SUM(profit_loss), 0) as total_pnl,\n  (SELECT current_equity FROM accounts LIMIT 1) as balance\nFROM trades \nWHERE DATE(entry_time) = CURRENT_DATE\n  AND status = 'CLOSED';",
         "options": {}
       },
       "id": "check-daily-loss",
@@ -40,7 +40,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Check if daily loss exceeds 5% limit\nconst totalPnl = $input.item.json.total_pnl || 0;\nconst balance = $input.item.json.balance || 10000;\nconst maxDailyLoss = balance * parseFloat(process.env.MAX_DAILY_LOSS_PERCENT || 0.05);\n\nconst lossPercent = (totalPnl / balance) * 100;\n\nreturn {\n  json: {\n    totalPnl,\n    balance,\n    maxDailyLoss,\n    lossPercent,\n    exceedsLimit: totalPnl < -maxDailyLoss,\n    signal: $input.item.json\n  }\n};"
+        "jsCode": "// Check if daily loss exceeds 5% limit\nconst totalPnl = $input.item.json.total_pnl || 0;\nconst balance = $input.item.json.balance || 10000;\nconst maxDailyLoss = balance * 0.05; // 5% max daily loss\n\nconst lossPercent = (totalPnl / balance) * 100;\n\nreturn {\n  json: {\n    totalPnl,\n    balance,\n    maxDailyLoss,\n    lossPercent,\n    exceedsLimit: totalPnl < -maxDailyLoss,\n    signal: $input.first().json\n  }\n};"
       },
       "id": "calculate-daily-loss",
       "name": "Calculate Daily Loss",
@@ -86,7 +86,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT margin_health_score, buying_power\nFROM accounts\nWHERE account_id = 1\nLIMIT 1;",
+        "query": "SELECT margin_health_score, buying_power, current_equity\nFROM accounts\nLIMIT 1;",
         "options": {}
       },
       "id": "check-margin-health",
@@ -115,7 +115,7 @@
           "conditions": [
             {
               "id": "margin-threshold",
-              "leftValue": "={{ $json.margin_health_score }}",
+              "leftValue": "={{ Number($json.margin_health_score) }}",
               "rightValue": 150,
               "operator": {
                 "type": "number",
@@ -139,7 +139,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "=SELECT COUNT(*) as position_count\nFROM positions\nWHERE account_id = 1 AND status = 'OPEN';",
+        "query": "=SELECT COUNT(*) as position_count\nFROM positions\nWHERE account_id = (SELECT account_id FROM accounts LIMIT 1);",
         "options": {}
       },
       "id": "check-concurrent-positions",
@@ -168,8 +168,8 @@
           "conditions": [
             {
               "id": "max-positions",
-              "leftValue": "={{ $json.position_count }}",
-              "rightValue": "={{ $env.MAX_CONCURRENT_POSITIONS || 3 }}",
+              "leftValue": "={{ Number($json.position_count) }}",
+              "rightValue": 3,
               "operator": {
                 "type": "number",
                 "operation": "smaller"
@@ -192,7 +192,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "=SELECT COUNT(*) as superficial_count\nFROM trades\nWHERE account_id = 1\n  AND symbol = '{{ $json.signal.symbol }}'\n  AND side = 'SELL'\n  AND created_at >= NOW() - INTERVAL '30 days'\n  AND profit_loss < 0;",
+        "query": "=SELECT COUNT(*) as superficial_count\nFROM trades\nWHERE symbol = '{{ $json.signal.symbol }}'\n  AND side = 'SELL'\n  AND exit_time >= NOW() - INTERVAL '30 days'\n  AND profit_loss < 0;",
         "options": {}
       },
       "id": "check-superficial-loss",
@@ -221,7 +221,7 @@
           "conditions": [
             {
               "id": "no-superficial",
-              "leftValue": "={{ $json.superficial_count }}",
+              "leftValue": "={{ Number($json.superficial_count) }}",
               "rightValue": 0,
               "operator": {
                 "type": "number",
@@ -244,7 +244,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Calculate position size (2% of account equity)\nconst balance = $input.item.json.balance || 10000;\nconst positionSizePercent = parseFloat(process.env.POSITION_SIZE_PERCENT || 0.02);\nconst currentPrice = $input.item.json.signal.currentPrice;\n\nconst positionValue = balance * positionSizePercent;\nconst quantity = Math.floor(positionValue / currentPrice);\n\nif (quantity < 1) {\n  return { json: { error: 'Position size too small', quantity: 0 } };\n}\n\nreturn {\n  json: {\n    symbol: $input.item.json.signal.symbol,\n    quantity,\n    currentPrice,\n    positionValue,\n    accountBalance: balance\n  }\n};"
+        "jsCode": "// Calculate position size (2% of account equity)\nconst balance = $input.item.json.current_equity || 10000;\nconst positionSizePercent = 0.02; // 2% of account equity\nconst currentPrice = $input.first().json.signal?.currentPrice || $input.first().json.currentPrice;\n\nconst positionValue = balance * positionSizePercent;\nconst quantity = Math.floor(positionValue / currentPrice);\n\nif (quantity < 1) {\n  return { json: { error: 'Position size too small', quantity: 0 } };\n}\n\nreturn {\n  json: {\n    symbol: $input.first().json.signal?.symbol || $input.first().json.symbol,\n    quantity,\n    currentPrice,\n    positionValue,\n    accountBalance: balance\n  }\n};"
       },
       "id": "calculate-position-size",
       "name": "Calculate Position Size",
@@ -258,7 +258,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://api.snaptrade.com/api/v1/accounts/{{ $env.SNAPTRADE_ACCOUNT_ID }}/orders",
+        "url": "https://api.snaptrade.com/api/v1/accounts/test_account_123/orders",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -266,7 +266,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $env.SNAPTRADE_API_KEY }}"
+              "value": "Bearer ROBOTRADER-TEST-KCOEY"
             },
             {
               "name": "Content-Type",
@@ -357,7 +357,7 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "method": "POST",
-        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "url": "https://api.telegram.org/bot[YOUR_TELEGRAM_BOT_TOKEN]/sendMessage",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -372,7 +372,7 @@
           "parameters": [
             {
               "name": "chat_id",
-              "value": "={{ $env.TELEGRAM_CHAT_ID }}"
+              "value": "[YOUR_TELEGRAM_CHAT_ID]"
             },
             {
               "name": "text",

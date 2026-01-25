@@ -1,0 +1,162 @@
+{
+  "name": "4. Risk Management",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "minutes", "minutesInterval": 5}]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.account_id, a.current_equity, a.margin_balance, a.buying_power, a.margin_health_score, u.max_daily_loss_limit FROM accounts a JOIN users u ON a.user_id = u.user_id WHERE u.status = 'active' LIMIT 1;",
+        "options": {}
+      },
+      "id": "fetch-account",
+      "name": "Fetch Account Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT COALESCE(SUM(profit_loss), 0) as daily_pnl FROM trades WHERE account_id = '{{ $json.account_id }}'::uuid AND DATE(entry_time) = CURRENT_DATE AND status = 'closed';",
+        "options": {}
+      },
+      "id": "calc-daily-pnl",
+      "name": "Calculate Daily P&L",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [680, 300],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const account = $('Fetch Account Data').first().json;\nconst pnl = $input.first().json;\n\nconst equity = parseFloat(account.current_equity || 10000);\nconst marginHealth = parseFloat(account.margin_health_score || 200);\nconst dailyPnl = parseFloat(pnl.daily_pnl || 0);\nconst maxDailyLoss = parseFloat(account.max_daily_loss_limit || 500);\n\nconst dailyLossPercent = (dailyPnl / equity) * 100;\nconst marginStatus = marginHealth > 150 ? 'green' : (marginHealth > 125 ? 'yellow' : 'red');\n\nreturn {\n  account_id: account.account_id,\n  equity,\n  margin_health: marginHealth,\n  margin_status: marginStatus,\n  daily_pnl: dailyPnl,\n  daily_loss_percent: dailyLossPercent,\n  max_daily_loss: maxDailyLoss,\n  daily_limit_breached: dailyPnl < -maxDailyLoss,\n  margin_critical: marginHealth < 125,\n  needs_alert: marginHealth < 125 || dailyPnl < -maxDailyLoss\n};"
+      },
+      "id": "calc-risk-metrics",
+      "name": "Calculate Risk Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {"leftValue": "={{ $json.needs_alert }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true"}}
+          ]
+        }
+      },
+      "id": "check-alerts",
+      "name": "Needs Alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO alerts (account_id, alert_type, severity, message) VALUES ('{{ $json.account_id }}'::uuid, CASE WHEN {{ $json.margin_critical }} THEN 'margin_call' WHEN {{ $json.daily_limit_breached }} THEN 'daily_loss_limit' ELSE 'risk_warning' END, CASE WHEN {{ $json.margin_critical }} OR {{ $json.daily_limit_breached }} THEN 'critical' ELSE 'warning' END, CASE WHEN {{ $json.margin_critical }} THEN 'Margin health at {{ $json.margin_health }}% - Critical level!' WHEN {{ $json.daily_limit_breached }} THEN 'Daily loss ${{ $json.daily_pnl }} exceeded limit ${{ $json.max_daily_loss }}' ELSE 'Risk warning triggered' END) RETURNING *;",
+        "options": {}
+      },
+      "id": "log-alert",
+      "name": "Log Alert to DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1340, 200],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {"leftValue": "={{ $json.margin_critical }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true"}}
+          ]
+        }
+      },
+      "id": "check-emergency",
+      "name": "Emergency Liquidation?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE algorithm_config SET enabled = false WHERE account_id = '{{ $json.account_id }}'::uuid RETURNING *;",
+        "options": {}
+      },
+      "id": "disable-trading",
+      "name": "Disable Trading Algorithm",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1780, 100],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT position_id, symbol, quantity FROM positions WHERE account_id = '{{ $json.account_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "fetch-positions",
+      "name": "Fetch All Positions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2000, 100],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {
+        "text": "=🚨 EMERGENCY LIQUIDATION\nMargin: {{ $('Calculate Risk Metrics').first().json.margin_health }}%\nDaily P&L: ${{ $('Calculate Risk Metrics').first().json.daily_pnl }}\nPositions being closed...",
+        "additionalFields": {}
+      },
+      "id": "send-telegram-alert",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [2220, 100],
+      "credentials": {"telegramApi": {"id": "2", "name": "Telegram Bot"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE daily_metrics SET margin_usage_percent = {{ $json.margin_health }}, max_drawdown_day = {{ $json.daily_loss_percent }} WHERE account_id = '{{ $json.account_id }}'::uuid AND trade_date = CURRENT_DATE;",
+        "options": {}
+      },
+      "id": "update-metrics",
+      "name": "Update Daily Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1340, 400],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    }
+  ],
+  "connections": {
+    "Every 5 Minutes": {"main": [[{"node": "Fetch Account Data", "type": "main", "index": 0}]]},
+    "Fetch Account Data": {"main": [[{"node": "Calculate Daily P&L", "type": "main", "index": 0}]]},
+    "Calculate Daily P&L": {"main": [[{"node": "Calculate Risk Metrics", "type": "main", "index": 0}]]},
+    "Calculate Risk Metrics": {"main": [[{"node": "Needs Alert?", "type": "main", "index": 0}]]},
+    "Needs Alert?": {"main": [[{"node": "Log Alert to DB", "type": "main", "index": 0}, {"node": "Update Daily Metrics", "type": "main", "index": 0}]]},
+    "Log Alert to DB": {"main": [[{"node": "Emergency Liquidation?", "type": "main", "index": 0}]]},
+    "Emergency Liquidation?": {"main": [[{"node": "Disable Trading Algorithm", "type": "main", "index": 0}]]},
+    "Disable Trading Algorithm": {"main": [[{"node": "Fetch All Positions", "type": "main", "index": 0}]]},
+    "Fetch All Positions": {"main": [[{"node": "Send Telegram Alert", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-25T00:00:00.000Z",
+  "versionId": "v1"
+}

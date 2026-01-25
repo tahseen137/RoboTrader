@@ -1,0 +1,445 @@
+{
+  "name": "1. Market Scanner (Cached)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 5 Minutes (Market Hours)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT symbol FROM watchlist WHERE active = true ORDER BY symbol;",
+        "options": {}
+      },
+      "id": "fetch-watchlist",
+      "name": "Fetch Watchlist",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ new Date().getDay() }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "leftValue": "={{ new Date().getDay() }}",
+              "rightValue": 6,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "leftValue": "={{ new Date().getHours() }}",
+              "rightValue": 9,
+              "operator": {
+                "type": "number",
+                "operation": "largerEqual"
+              }
+            },
+            {
+              "leftValue": "={{ new Date().getHours() }}",
+              "rightValue": 16,
+              "operator": {
+                "type": "number",
+                "operation": "smaller"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-market-hours",
+      "name": "Check Market Hours",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT symbol, close_price, timestamp, cached_at\nFROM market_data_cache\nWHERE symbol = '{{ $json.symbol }}'\n  AND timeframe = '5min'\n  AND cached_at >= NOW() - INTERVAL '5 minutes'\nORDER BY timestamp DESC\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "check-cache",
+      "name": "Check Cache",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [900, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.symbol }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cache-exists",
+      "name": "Cache Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={{ $json.symbol }}&interval=5min&apikey=2GIRY0GZYZWPW148",
+        "options": {}
+      },
+      "id": "fetch-from-api",
+      "name": "Fetch from Alpha Vantage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform Alpha Vantage response to match our format\nconst data = $input.first().json;\nconst symbol = $('Fetch Watchlist').item.json.symbol;\n\nif (!data['Time Series (5min)']) {\n  return { error: 'No data returned from API', symbol };\n}\n\nconst timeSeries = data['Time Series (5min)'];\nconst timestamps = Object.keys(timeSeries);\nconst latest = timestamps[0];\nconst candle = timeSeries[latest];\n\nreturn {\n  symbol,\n  open: parseFloat(candle['1. open']),\n  high: parseFloat(candle['2. high']),\n  low: parseFloat(candle['3. low']),\n  close: parseFloat(candle['4. close']),\n  volume: parseInt(candle['5. volume']),\n  timestamp: latest,\n  from_cache: false\n};"
+      },
+      "id": "transform-api-data",
+      "name": "Transform API Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 420]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO market_data_cache (symbol, timeframe, open_price, high_price, low_price, close_price, volume, timestamp)\nVALUES (\n  '{{ $json.symbol }}',\n  '5min',\n  {{ $json.open }},\n  {{ $json.high }},\n  {{ $json.low }},\n  {{ $json.close }},\n  {{ $json.volume }},\n  '{{ $json.timestamp }}'\n)\nON CONFLICT (symbol, timeframe, timestamp) \nDO UPDATE SET \n  close_price = EXCLUDED.close_price,\n  cached_at = NOW()\nRETURNING *;",
+        "options": {}
+      },
+      "id": "save-to-cache",
+      "name": "Save to Cache",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1780, 420],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Use cached data - transform to match API format\nconst cached = $input.first().json;\n\nreturn {\n  symbol: cached.symbol,\n  open: parseFloat(cached.open_price || cached.close_price),\n  high: parseFloat(cached.high_price || cached.close_price),\n  low: parseFloat(cached.low_price || cached.close_price),\n  close: parseFloat(cached.close_price),\n  volume: parseInt(cached.volume || 0),\n  timestamp: cached.timestamp,\n  from_cache: true\n};"
+      },
+      "id": "use-cached-data",
+      "name": "Use Cached Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 180]
+    },
+    {
+      "parameters": {},
+      "id": "merge-data",
+      "name": "Merge Data Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate Technical Indicators\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const symbol = data.symbol;\n  \n  // For this simplified version, we'll calculate based on single candle\n  // In production, you'd fetch historical data for proper SMA/RSI calculation\n  const close = data.close;\n  \n  // Placeholder calculations (replace with actual historical data logic)\n  const sma_fast = close; // Should use last 10 periods\n  const sma_slow = close * 0.98; // Should use last 30 periods\n  const rsi = 50; // Should calculate from historical data\n  const adx = 25; // Should calculate from historical data\n  \n  // Trading signal logic\n  let signal = 'HOLD';\n  let confidence = 0;\n  \n  if (sma_fast > sma_slow && rsi >= 30 && rsi <= 60 && adx > 20) {\n    signal = 'BUY';\n    confidence = 0.75;\n  } else if (sma_fast < sma_slow || rsi > 70) {\n    signal = 'SELL';\n    confidence = 0.60;\n  }\n  \n  results.push({\n    symbol,\n    action: signal,\n    confidence,\n    entry_price: close,\n    from_cache: data.from_cache,\n    indicators: {\n      sma_fast,\n      sma_slow,\n      rsi,\n      adx,\n      close\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "calculate-indicators",
+      "name": "Calculate Indicators",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO signals (symbol, action, confidence, entry_price, indicators)\nVALUES (\n  '{{ $json.symbol }}',\n  '{{ $json.action }}',\n  {{ $json.confidence }},\n  {{ $json.entry_price }},\n  '{{ JSON.stringify($json.indicators) }}'::jsonb\n)\nRETURNING *;",
+        "options": {}
+      },
+      "id": "log-signal",
+      "name": "Log Signal to DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2440, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL - Trading DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "BUY",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-buy-signals",
+      "name": "Filter BUY Signals",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2660, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5678/webhook/trade-execution",
+        "options": {
+          "allowUnauthorizedCerts": true
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $json.symbol }}"
+            },
+            {
+              "name": "action",
+              "value": "={{ $json.action }}"
+            },
+            {
+              "name": "confidence",
+              "value": "={{ $json.confidence }}"
+            },
+            {
+              "name": "entry_price",
+              "value": "={{ $json.entry_price }}"
+            }
+          ]
+        }
+      },
+      "id": "trigger-trade-execution",
+      "name": "Trigger Trade Execution",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2880, 300]
+    }
+  ],
+  "connections": {
+    "Every 5 Minutes (Market Hours)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Watchlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Watchlist": {
+      "main": [
+        [
+          {
+            "node": "Check Market Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Market Hours": {
+      "main": [
+        [
+          {
+            "node": "Check Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Cache": {
+      "main": [
+        [
+          {
+            "node": "Cache Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache Exists?": {
+      "main": [
+        [
+          {
+            "node": "Use Cached Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch from Alpha Vantage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch from Alpha Vantage": {
+      "main": [
+        [
+          {
+            "node": "Transform API Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform API Data": {
+      "main": [
+        [
+          {
+            "node": "Save to Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Cache": {
+      "main": [
+        [
+          {
+            "node": "Merge Data Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Cached Data": {
+      "main": [
+        [
+          {
+            "node": "Merge Data Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Data Sources": {
+      "main": [
+        [
+          {
+            "node": "Calculate Indicators",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Indicators": {
+      "main": [
+        [
+          {
+            "node": "Log Signal to DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Signal to DB": {
+      "main": [
+        [
+          {
+            "node": "Filter BUY Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter BUY Signals": {
+      "main": [
+        [
+          {
+            "node": "Trigger Trade Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-24T00:00:00.000Z",
+  "versionId": "cached-v1"
+}

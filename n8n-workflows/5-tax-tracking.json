@@ -1,0 +1,150 @@
+{
+  "name": "5. Tax Tracking (Canadian)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tax-tracking",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger (Post-Trade)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "tax-tracking-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM trades WHERE trade_id = '{{ $json.trade_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "fetch-trade",
+      "name": "Fetch Trade Details",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT t.symbol, t.side, t.entry_time, t.exit_time FROM trades t WHERE t.account_id = '{{ $json.account_id }}'::uuid AND t.symbol = '{{ $json.symbol }}' AND t.exit_time IS NOT NULL AND t.exit_time >= (SELECT exit_time FROM trades WHERE trade_id = '{{ $json.trade_id }}'::uuid) - INTERVAL '30 days' AND t.exit_time < (SELECT exit_time FROM trades WHERE trade_id = '{{ $json.trade_id }}'::uuid) ORDER BY exit_time DESC;",
+        "options": {}
+      },
+      "id": "check-superficial",
+      "name": "Check 30-Day Superficial Loss",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [680, 300],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const trade = $('Fetch Trade Details').first().json;\nconst recentTrades = $input.all().map(i => i.json);\n\nconst isLoss = parseFloat(trade.profit_loss || 0) < 0;\nconst symbol = trade.symbol;\n\nlet superficialLoss = false;\nif (isLoss && recentTrades.length > 0) {\n  const hasBuyWithin30Days = recentTrades.some(t => \n    t.symbol === symbol && t.side === 'buy'\n  );\n  superficialLoss = hasBuyWithin30Days;\n}\n\nreturn {\n  trade_id: trade.trade_id,\n  account_id: trade.account_id,\n  symbol: trade.symbol,\n  quantity: trade.quantity,\n  entry_price: parseFloat(trade.entry_price),\n  exit_price: parseFloat(trade.exit_price),\n  profit_loss: parseFloat(trade.profit_loss),\n  is_superficial_loss: superficialLoss,\n  side: trade.side\n};"
+      },
+      "id": "detect-superficial",
+      "name": "Detect Superficial Loss",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {"leftValue": "={{ $json.is_superficial_loss }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true"}}
+          ]
+        }
+      },
+      "id": "is-superficial",
+      "name": "Is Superficial Loss?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE trades SET superficial_loss_flag = true WHERE trade_id = '{{ $json.trade_id }}'::uuid RETURNING *;",
+        "options": {}
+      },
+      "id": "flag-superficial",
+      "name": "Flag Superficial Loss",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1340, 200],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO alerts (account_id, alert_type, severity, message) VALUES ('{{ $json.account_id }}'::uuid, 'tax_superficial_loss', 'info', 'Superficial loss detected: {{ $json.symbol }} - Loss ${{ $json.profit_loss }} cannot be claimed for tax year') RETURNING *;",
+        "options": {}
+      },
+      "id": "alert-superficial",
+      "name": "Create Tax Alert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1560, 200],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT symbol, COALESCE(SUM(quantity * average_cost) / NULLIF(SUM(quantity), 0), 0) as acb FROM tax_lots WHERE account_id = '{{ $json.account_id }}'::uuid AND symbol = '{{ $json.symbol }}' AND status = 'OPEN' GROUP BY symbol;",
+        "options": {}
+      },
+      "id": "calc-acb",
+      "name": "Calculate ACB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1340, 400],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {"leftValue": "={{ $json.side }}", "rightValue": "buy", "operator": {"type": "string", "operation": "equals"}}
+          ]
+        }
+      },
+      "id": "check-side",
+      "name": "Is Buy Trade?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO tax_lots (account_id, symbol, quantity, average_cost, purchase_date, status) VALUES ('{{ $json.account_id }}'::uuid, '{{ $json.symbol }}', {{ $json.quantity }}, {{ $json.entry_price }}, CURRENT_DATE, 'OPEN') ON CONFLICT (account_id, symbol) WHERE status = 'OPEN' DO UPDATE SET quantity = tax_lots.quantity + EXCLUDED.quantity, average_cost = (tax_lots.quantity * tax_lots.average_cost + EXCLUDED.quantity * EXCLUDED.average_cost) / (tax_lots.quantity + EXCLUDED.quantity) RETURNING *;",
+        "options": {}
+      },
+      "id": "update-tax-lot",
+      "name": "Update Tax Lot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1780, 300],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    }
+  ],
+  "connections": {
+    "Webhook Trigger (Post-Trade)": {"main": [[{"node": "Fetch Trade Details", "type": "main", "index": 0}]]},
+    "Fetch Trade Details": {"main": [[{"node": "Check 30-Day Superficial Loss", "type": "main", "index": 0}]]},
+    "Check 30-Day Superficial Loss": {"main": [[{"node": "Detect Superficial Loss", "type": "main", "index": 0}]]},
+    "Detect Superficial Loss": {"main": [[{"node": "Is Superficial Loss?", "type": "main", "index": 0}, {"node": "Calculate ACB", "type": "main", "index": 0}]]},
+    "Is Superficial Loss?": {"main": [[{"node": "Flag Superficial Loss", "type": "main", "index": 0}]]},
+    "Flag Superficial Loss": {"main": [[{"node": "Create Tax Alert", "type": "main", "index": 0}]]},
+    "Calculate ACB": {"main": [[{"node": "Is Buy Trade?", "type": "main", "index": 0}]]},
+    "Is Buy Trade?": {"main": [[{"node": "Update Tax Lot", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-25T00:00:00.000Z",
+  "versionId": "v1"
+}
