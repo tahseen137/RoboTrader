@@ -139,10 +139,11 @@ jobs:
           N8N_PASSWORD=test_password
           N8N_ENCRYPTION_KEY=test_encryption_key_minimum_32_characters_long
           WEBHOOK_URL=http://localhost:5678/
-          SNAPTRADE_API_KEY=test_key
-          SNAPTRADE_SECRET=test_secret
+          # Test values only - not real credentials
+          SNAPTRADE_API_KEY=test_key_not_real
+          SNAPTRADE_SECRET=test_secret_not_real
           SNAPTRADE_ACCOUNT_ID=test_account
-          ALPHA_VANTAGE_API_KEY=test_key
+          ALPHA_VANTAGE_API_KEY=test_key_not_real
           MAX_DAILY_LOSS_PERCENT=0.05
           MAX_CONCURRENT_POSITIONS=3
           POSITION_SIZE_PERCENT=0.02

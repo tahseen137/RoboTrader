@@ -195,6 +195,23 @@ CREATE TABLE IF NOT EXISTS signals (
 
 \echo 'Table created: signals'
 
+-- Market Data Cache Table (for Alpha Vantage rate limit mitigation)
+CREATE TABLE IF NOT EXISTS market_data_cache (
+    cache_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    symbol VARCHAR(10) NOT NULL,
+    timeframe VARCHAR(20) NOT NULL,
+    open_price DECIMAL(10,4),
+    high_price DECIMAL(10,4),
+    low_price DECIMAL(10,4),
+    close_price DECIMAL(10,4),
+    volume BIGINT,
+    timestamp TIMESTAMP NOT NULL,
+    cached_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(symbol, timeframe, timestamp)
+);
+
+\echo 'Table created: market_data_cache'
+
 -- ============================================================================
 -- INDEXES (Performance Optimization)
 -- ============================================================================
@@ -217,6 +234,9 @@ CREATE INDEX IF NOT EXISTS idx_watchlist_active ON watchlist(active);
 
 CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at);
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol);
+
+CREATE INDEX IF NOT EXISTS idx_market_data_symbol_time ON market_data_cache(symbol, timestamp);
+CREATE INDEX IF NOT EXISTS idx_market_data_cached ON market_data_cache(cached_at);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_account ON alerts(account_id);
 CREATE INDEX IF NOT EXISTS idx_alerts_acknowledged ON alerts(acknowledged);

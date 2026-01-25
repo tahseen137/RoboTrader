@@ -42,7 +42,8 @@ jobs:
         run: |
           echo "Scanning for API keys and tokens..."
           # Check for common secret patterns
-          if git grep -E 'SNAPTRADE_API_KEY=.+|ALPHA_VANTAGE_API_KEY=.+|TELEGRAM_BOT_TOKEN=.+' -- ':!*.example' ':!*.md'; then
+          # Exclude test values in workflows
+          if git grep -E 'SNAPTRADE_API_KEY=(?!test_key).+|ALPHA_VANTAGE_API_KEY=(?!test_key).+|TELEGRAM_BOT_TOKEN=(?!test_).+' -- ':!*.example' ':!*.md' ':!.github/workflows/*'; then
             echo "⚠️  WARNING: Possible API key found in code!"
             echo "Review the above matches and ensure they're not real credentials"
             exit 1

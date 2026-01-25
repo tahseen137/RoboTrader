@@ -1,0 +1,80 @@
+{
+  "name": "6. Dashboard API",
+  "nodes": [
+    {
+      "parameters": {"httpMethod": "GET", "path": "account-data", "options": {}},
+      "id": "webhook-account",
+      "name": "GET /account-data",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 100]
+    },
+    {
+      "parameters": {"operation": "executeQuery", "query": "SELECT a.current_equity as equity, a.buying_power, a.margin_health_score as margin_health, COALESCE(SUM(t.profit_loss), 0) as daily_pnl FROM accounts a LEFT JOIN trades t ON a.account_id = t.account_id AND DATE(t.entry_time) = CURRENT_DATE WHERE a.snaptrade_account_id = 'test_account_123' GROUP BY a.account_id;"},
+      "id": "fetch-account-data",
+      "name": "Fetch Account",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 100],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {"httpMethod": "GET", "path": "positions", "options": {}},
+      "id": "webhook-positions",
+      "name": "GET /positions",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {"operation": "executeQuery", "query": "SELECT * FROM positions ORDER BY created_at DESC;"},
+      "id": "fetch-positions",
+      "name": "Fetch Positions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {"httpMethod": "GET", "path": "trades", "options": {}},
+      "id": "webhook-trades",
+      "name": "GET /trades",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 500]
+    },
+    {
+      "parameters": {"operation": "executeQuery", "query": "SELECT * FROM trades WHERE status = 'closed' ORDER BY exit_time DESC LIMIT 20;"},
+      "id": "fetch-trades",
+      "name": "Fetch Trades",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 500],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    },
+    {
+      "parameters": {"httpMethod": "GET", "path": "alerts", "options": {}},
+      "id": "webhook-alerts",
+      "name": "GET /alerts",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 700]
+    },
+    {
+      "parameters": {"operation": "executeQuery", "query": "SELECT * FROM alerts ORDER BY created_at DESC LIMIT 10;"},
+      "id": "fetch-alerts",
+      "name": "Fetch Alerts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 700],
+      "credentials": {"postgres": {"id": "1", "name": "PostgreSQL - Trading DB"}}
+    }
+  ],
+  "connections": {
+    "GET /account-data": {"main": [[{"node": "Fetch Account", "type": "main", "index": 0}]]},
+    "GET /positions": {"main": [[{"node": "Fetch Positions", "type": "main", "index": 0}]]},
+    "GET /trades": {"main": [[{"node": "Fetch Trades", "type": "main", "index": 0}]]},
+    "GET /alerts": {"main": [[{"node": "Fetch Alerts", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"}
+}
