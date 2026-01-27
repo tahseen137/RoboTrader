@@ -65,8 +65,8 @@ ORDER BY unrealized_pnl DESC;
 SELECT
     COUNT(*) as total_entries,
     COUNT(DISTINCT symbol) as unique_symbols,
-    COUNT(*) FILTER (WHERE cached_at > NOW() - INTERVAL '5 minutes') as fresh_entries,
-    ROUND(100.0 * COUNT(*) FILTER (WHERE cached_at > NOW() - INTERVAL '5 minutes') / NULLIF(COUNT(*), 0), 2) as fresh_percent,
+    COUNT(*) FILTER (WHERE cached_at > NOW() - INTERVAL '1 minute') as fresh_entries,
+    ROUND(100.0 * COUNT(*) FILTER (WHERE cached_at > NOW() - INTERVAL '1 minute') / NULLIF(COUNT(*), 0), 2) as fresh_percent,
     MAX(cached_at) as last_cache_update,
     pg_size_pretty(pg_total_relation_size('market_data_cache')) as table_size
 FROM market_data_cache

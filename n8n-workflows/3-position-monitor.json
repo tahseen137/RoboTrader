@@ -122,7 +122,7 @@
     },
     {
       "parameters": {
-        "url": "=https://finnhub.io/api/v1/quote?symbol={{ $json.symbol }}&token=d5ook8hr01qrrlcmvkdgd5ook8hr01qrrlcmvke0",
+        "url": "=https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={{ $json.symbol }}&apikey=2GIRY0GZYZWPW148",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpQueryAuth",
         "sendQuery": false,
@@ -130,7 +130,7 @@
         "options": {}
       },
       "id": "fetch-current-price",
-      "name": "Fetch Current Price (Finnhub)",
+      "name": "Fetch Current Price (Alpha Vantage)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -140,7 +140,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Calculate P&L and check exit conditions\nconst position = $input.item.json;\nconst currentPrice = $input.item.json.c; // Finnhub returns current price as 'c'\nconst entryPrice = position.entry_price;\nconst quantity = position.quantity;\n\n// Calculate unrealized P&L\nconst unrealizedPnl = (currentPrice - entryPrice) * quantity;\nconst pnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;\n\n// Exit conditions\nconst profitTarget = parseFloat(process.env.PROFIT_TARGET_PERCENT || 0.03) * 100; // 3%\nconst stopLoss = parseFloat(process.env.STOP_LOSS_PERCENT || 0.015) * 100; // 1.5%\n\n// Take Profit: >= 3%\nconst takeProfitHit = pnlPercent >= profitTarget;\n\n// Stop Loss: <= -1.5%\nconst stopLossHit = pnlPercent <= -stopLoss;\n\n// Trailing Stop: After 1% profit, exit on 0.5% pullback\nconst trailingStopActivated = pnlPercent >= 1;\nconst highPrice = position.high_price || entryPrice; // Track highest price\nconst pullback = ((highPrice - currentPrice) / highPrice) * 100;\nconst trailingStopHit = trailingStopActivated && pullback >= 0.5;\n\nconst shouldExit = takeProfitHit || stopLossHit || trailingStopHit;\n\nlet exitReason = '';\nif (takeProfitHit) exitReason = 'TAKE_PROFIT';\nelse if (stopLossHit) exitReason = 'STOP_LOSS';\nelse if (trailingStopHit) exitReason = 'TRAILING_STOP';\n\nreturn {\n  json: {\n    position_id: position.position_id,\n    trade_id: position.trade_id,\n    symbol: position.symbol,\n    quantity,\n    entryPrice,\n    currentPrice,\n    unrealizedPnl,\n    pnlPercent,\n    shouldExit,\n    exitReason,\n    highPrice: Math.max(highPrice, currentPrice)\n  }\n};"
+        "jsCode": "// Calculate P&L and check exit conditions\nconst position = $input.item.json;\nconst apiData = $input.item.json['Global Quote'] || $input.item.json;\nconst currentPrice = parseFloat(apiData['05. price'] || apiData.c || 0); // Alpha Vantage format\nconst entryPrice = position.entry_price;\nconst quantity = position.quantity;\n\n// Calculate unrealized P&L\nconst unrealizedPnl = (currentPrice - entryPrice) * quantity;\nconst pnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;\n\n// Exit conditions\nconst profitTarget = parseFloat(process.env.PROFIT_TARGET_PERCENT || 0.03) * 100; // 3%\nconst stopLoss = parseFloat(process.env.STOP_LOSS_PERCENT || 0.015) * 100; // 1.5%\n\n// Take Profit: >= 3%\nconst takeProfitHit = pnlPercent >= profitTarget;\n\n// Stop Loss: <= -1.5%\nconst stopLossHit = pnlPercent <= -stopLoss;\n\n// Trailing Stop: After 1% profit, exit on 0.5% pullback\nconst trailingStopActivated = pnlPercent >= 1;\nconst highPrice = position.high_price || entryPrice; // Track highest price\nconst pullback = ((highPrice - currentPrice) / highPrice) * 100;\nconst trailingStopHit = trailingStopActivated && pullback >= 0.5;\n\nconst shouldExit = takeProfitHit || stopLossHit || trailingStopHit;\n\nlet exitReason = '';\nif (takeProfitHit) exitReason = 'TAKE_PROFIT';\nelse if (stopLossHit) exitReason = 'STOP_LOSS';\nelse if (trailingStopHit) exitReason = 'TRAILING_STOP';\n\nreturn {\n  json: {\n    position_id: position.position_id,\n    trade_id: position.trade_id,\n    symbol: position.symbol,\n    quantity,\n    entryPrice,\n    currentPrice,\n    unrealizedPnl,\n    pnlPercent,\n    shouldExit,\n    exitReason,\n    highPrice: Math.max(highPrice, currentPrice)\n  }\n};"
       },
       "id": "calculate-pnl",
       "name": "Calculate P&L and Exit Conditions",
@@ -439,14 +439,14 @@
       "main": [
         [
           {
-            "node": "Fetch Current Price (Finnhub)",
+            "node": "Fetch Current Price (Alpha Vantage)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Fetch Current Price (Finnhub)": {
+    "Fetch Current Price (Alpha Vantage)": {
       "main": [
         [
           {

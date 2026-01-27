@@ -91,7 +91,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "=SELECT symbol, close_price, timestamp, cached_at\nFROM market_data_cache\nWHERE symbol = '{{ $json.symbol }}'\n  AND timeframe = '5min'\n  AND cached_at >= NOW() - INTERVAL '5 minutes'\nORDER BY timestamp DESC\nLIMIT 1;",
+        "query": "=SELECT symbol, close_price, timestamp, cached_at\nFROM market_data_cache\nWHERE symbol = '{{ $json.symbol }}'\n  AND timeframe = '5min'\n  AND cached_at >= NOW() - INTERVAL '1 minute'\nORDER BY timestamp DESC\nLIMIT 1;",
         "options": {}
       },
       "id": "check-cache",
