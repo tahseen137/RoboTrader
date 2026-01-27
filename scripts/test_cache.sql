@@ -54,7 +54,7 @@ SELECT
     close_price,
     EXTRACT(EPOCH FROM (NOW() - cached_at)) / 60 as age_minutes,
     CASE
-        WHEN cached_at >= NOW() - INTERVAL '5 minutes' THEN '✓ FRESH'
+        WHEN cached_at >= NOW() - INTERVAL '1 minute' THEN '✓ FRESH'
         ELSE '✗ STALE'
     END as cache_status
 FROM market_data_cache
@@ -70,7 +70,7 @@ SELECT
     EXTRACT(EPOCH FROM (NOW() - cached_at)) / 60 as age_minutes,
     '✗ STALE - Would trigger API call' as cache_status
 FROM market_data_cache
-WHERE cached_at < NOW() - INTERVAL '5 minutes'
+WHERE cached_at < NOW() - INTERVAL '1 minute'
 ORDER BY symbol;
 \echo ''
 
@@ -83,13 +83,13 @@ SELECT
     cached_at,
     EXTRACT(EPOCH FROM (NOW() - cached_at)) / 60 as age_minutes,
     CASE
-        WHEN cached_at >= NOW() - INTERVAL '5 minutes' THEN '✓ CACHE HIT - No API call needed'
+        WHEN cached_at >= NOW() - INTERVAL '1 minute' THEN '✓ CACHE HIT - No API call needed'
         ELSE '✗ CACHE MISS - API call required'
     END as result
 FROM market_data_cache
 WHERE symbol = 'AAPL'
   AND timeframe = '5min'
-  AND cached_at >= NOW() - INTERVAL '5 minutes'
+  AND cached_at >= NOW() - INTERVAL '1 minute'
 ORDER BY timestamp DESC
 LIMIT 1;
 \echo ''
@@ -99,8 +99,8 @@ LIMIT 1;
 SELECT
     COUNT(*) as total_entries,
     COUNT(DISTINCT symbol) as unique_symbols,
-    COUNT(*) FILTER (WHERE cached_at >= NOW() - INTERVAL '5 minutes') as fresh_entries,
-    COUNT(*) FILTER (WHERE cached_at < NOW() - INTERVAL '5 minutes') as stale_entries,
+    COUNT(*) FILTER (WHERE cached_at >= NOW() - INTERVAL '1 minute') as fresh_entries,
+    COUNT(*) FILTER (WHERE cached_at < NOW() - INTERVAL '1 minute') as stale_entries,
     MIN(cached_at) as oldest_entry,
     MAX(cached_at) as newest_entry,
     pg_size_pretty(pg_total_relation_size('market_data_cache')) as table_size
