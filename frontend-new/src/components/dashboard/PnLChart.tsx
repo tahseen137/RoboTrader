@@ -112,7 +112,7 @@ export function PnLChart({ data: trades }: PnLChartProps) {
               content={({ active, payload, label }) => {
                 if (active && payload && payload.length) {
                   const value = payload[0].value as number;
-                  const point = data.find(d => d.time === label);
+                  const point = chartData.find(d => d.time === label);
                   return (
                     <div className="bg-card border border-border rounded-lg p-3 shadow-xl">
                       <p className="text-sm text-muted-foreground">{label}</p>
