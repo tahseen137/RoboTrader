@@ -5,8 +5,15 @@ import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 
+interface AccountData {
+  equity?: number;
+  buying_power?: number;
+  margin_health?: number;
+  daily_pnl?: number;
+}
+
 interface FundSliderProps {
-  initialValue?: number;
+  data?: AccountData;
   maxValue?: number;
   positionSizePercent?: number;
   maxPositions?: number;
@@ -14,12 +21,13 @@ interface FundSliderProps {
 }
 
 export function FundSlider({
-  initialValue = 3000,
+  data,
   maxValue = 10000,
   positionSizePercent = 10,
   maxPositions = 3,
   onSave,
 }: FundSliderProps) {
+  const initialValue = data?.equity ?? 3000;
   const [value, setValue] = useState(initialValue);
   const [hasChanged, setHasChanged] = useState(false);
 

@@ -4,35 +4,47 @@ import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 
-interface RiskData {
-  riskLevel: number; // 0-100
-  openPositions: number;
-  maxPositions: number;
-  capitalDeployed: number;
-  totalCapital: number;
-  dailyLoss: number;
-  dailyLossLimit: number;
-  marginHealth: number;
+interface AccountData {
+  equity?: number;
+  buying_power?: number;
+  margin_health?: number;
+  daily_pnl?: number;
 }
 
 interface RiskDashboardProps {
-  data?: RiskData;
+  data?: AccountData;
   onEmergencyStop?: () => void;
 }
 
 export function RiskDashboard({ data, onEmergencyStop }: RiskDashboardProps) {
-  const defaultData: RiskData = {
-    riskLevel: 35,
-    openPositions: 2,
-    maxPositions: 3,
-    capitalDeployed: 600,
-    totalCapital: 3000,
-    dailyLoss: 2.5,
-    dailyLossLimit: 5,
-    marginHealth: 200,
-  };
+  // Extract values with defaults
+  const totalCapital = data?.equity ?? 3000;
+  const marginHealth = data?.margin_health ?? 200;
+  const dailyPnl = data?.daily_pnl ?? 0;
 
-  const risk = data || defaultData;
+  // Calculate risk metrics
+  const dailyLossLimit = totalCapital * 0.05; // 5% of capital
+  const dailyLoss = Math.abs(Math.min(dailyPnl, 0));
+  const capitalDeployed = totalCapital - (data?.buying_power ?? totalCapital);
+  const openPositions = 0; // Will be calculated from positions data later
+  const maxPositions = 3;
+
+  // Calculate risk level (0-100)
+  const lossRisk = (dailyLoss / dailyLossLimit) * 50; // 0-50 based on daily loss
+  const deploymentRisk = (capitalDeployed / totalCapital) * 30; // 0-30 based on deployment
+  const marginRisk = marginHealth < 150 ? (150 - marginHealth) / 150 * 20 : 0; // 0-20 based on margin
+  const riskLevel = Math.min(100, lossRisk + deploymentRisk + marginRisk);
+
+  const risk = {
+    riskLevel,
+    openPositions,
+    maxPositions,
+    capitalDeployed,
+    totalCapital,
+    dailyLoss,
+    dailyLossLimit,
+    marginHealth,
+  };
 
   const getRiskColor = (level: number) => {
     if (level < 30) return "text-profit";

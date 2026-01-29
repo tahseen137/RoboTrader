@@ -10,34 +10,44 @@ import {
   YAxis,
 } from "recharts";
 
+interface Trade {
+  trade_id: string;
+  symbol: string;
+  profit_loss: number;
+  exit_time: string;
+}
+
 interface PnLDataPoint {
   time: string;
   pnl: number;
   trade?: string;
 }
 
-const mockData: PnLDataPoint[] = [
-  { time: "09:30", pnl: 0 },
-  { time: "10:00", pnl: 12.50, trade: "BUY TD.TO" },
-  { time: "10:30", pnl: 8.20 },
-  { time: "11:00", pnl: 25.80, trade: "SELL TD.TO +$15.50" },
-  { time: "11:30", pnl: 18.40 },
-  { time: "12:00", pnl: 22.60, trade: "BUY SHOP.TO" },
-  { time: "12:30", pnl: 28.90 },
-  { time: "13:00", pnl: 24.30 },
-  { time: "13:30", pnl: 32.50, trade: "SELL RY.TO -$5.20" },
-  { time: "14:00", pnl: 38.20 },
-  { time: "14:30", pnl: 45.60, trade: "SELL SHOP.TO +$8.40" },
-  { time: "15:00", pnl: 42.10 },
-  { time: "15:30", pnl: 48.80 },
-];
-
 interface PnLChartProps {
-  data?: PnLDataPoint[];
+  data?: Trade[];
 }
 
-export function PnLChart({ data = mockData }: PnLChartProps) {
-  const currentPnL = data[data.length - 1]?.pnl || 0;
+export function PnLChart({ data: trades }: PnLChartProps) {
+  // Convert trades to cumulative P&L chart data
+  const chartData: PnLDataPoint[] = [];
+
+  if (trades && trades.length > 0) {
+    let cumulativePnL = 0;
+    trades.forEach((trade) => {
+      cumulativePnL += trade.profit_loss;
+      const exitTime = new Date(trade.exit_time);
+      chartData.push({
+        time: exitTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        pnl: cumulativePnL,
+        trade: `${trade.symbol} ${trade.profit_loss >= 0 ? '+' : ''}$${trade.profit_loss.toFixed(2)}`,
+      });
+    });
+  } else {
+    // Default data if no trades
+    chartData.push({ time: "09:30", pnl: 0 });
+  }
+
+  const currentPnL = chartData[chartData.length - 1]?.pnl || 0;
   const isProfit = currentPnL >= 0;
 
   const formatCurrency = (value: number) => {
@@ -68,7 +78,7 @@ export function PnLChart({ data = mockData }: PnLChartProps) {
       <div className="h-[250px]">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
-            data={data}
+            data={chartData}
             margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
           >
             <defs>
