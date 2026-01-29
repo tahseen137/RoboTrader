@@ -391,7 +391,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "tax-tracking",
+        "path": "position-closed",
         "options": {}
       },
       "id": "trigger-tax-tracking",

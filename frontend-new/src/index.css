@@ -1,0 +1,252 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+/* RoboTrader Design System - Dark Trading Dashboard */
+
+@layer base {
+  :root {
+    /* Dark trading theme - always dark */
+    --background: 222 47% 5%;
+    --foreground: 210 40% 98%;
+
+    --card: 224 47% 11%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 224 47% 11%;
+    --popover-foreground: 210 40% 98%;
+
+    /* Neon Green Primary */
+    --primary: 152 100% 50%;
+    --primary-foreground: 222 47% 5%;
+
+    /* Blue Secondary */
+    --secondary: 217 91% 60%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 224 47% 15%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 224 47% 18%;
+    --accent-foreground: 210 40% 98%;
+
+    /* Red for losses/errors */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    /* Profit green */
+    --profit: 152 100% 50%;
+    --profit-foreground: 222 47% 5%;
+
+    /* Loss red */
+    --loss: 0 84% 60%;
+    --loss-foreground: 210 40% 98%;
+
+    /* Warning yellow */
+    --warning: 45 93% 47%;
+    --warning-foreground: 222 47% 5%;
+
+    /* Info blue */
+    --info: 207 90% 54%;
+    --info-foreground: 210 40% 98%;
+
+    --border: 224 47% 18%;
+    --input: 224 47% 18%;
+    --ring: 152 100% 50%;
+
+    --radius: 0.75rem;
+
+    /* Glow effects */
+    --glow-profit: 0 0 20px hsl(152 100% 50% / 0.4);
+    --glow-loss: 0 0 20px hsl(0 84% 60% / 0.4);
+    --glow-primary: 0 0 30px hsl(152 100% 50% / 0.3);
+
+    /* Sidebar */
+    --sidebar-background: 224 47% 8%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 152 100% 50%;
+    --sidebar-primary-foreground: 222 47% 5%;
+    --sidebar-accent: 224 47% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 224 47% 18%;
+    --sidebar-ring: 152 100% 50%;
+  }
+
+  .dark {
+    --background: 222 47% 5%;
+    --foreground: 210 40% 98%;
+    --card: 224 47% 11%;
+    --card-foreground: 210 40% 98%;
+    --popover: 224 47% 11%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 152 100% 50%;
+    --primary-foreground: 222 47% 5%;
+    --secondary: 217 91% 60%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 224 47% 15%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 224 47% 18%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 224 47% 18%;
+    --input: 224 47% 18%;
+    --ring: 152 100% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* Mono font for numbers */
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer components {
+  /* Glassmorphism card effect */
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50 rounded-xl;
+  }
+
+  /* Neon glow text */
+  .text-glow-profit {
+    text-shadow: 0 0 10px hsl(152 100% 50% / 0.5), 0 0 20px hsl(152 100% 50% / 0.3);
+  }
+
+  .text-glow-loss {
+    text-shadow: 0 0 10px hsl(0 84% 60% / 0.5), 0 0 20px hsl(0 84% 60% / 0.3);
+  }
+
+  /* Pulse animation for live indicators */
+  .pulse-live {
+    animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% {
+      box-shadow: 0 0 0 0 hsl(152 100% 50% / 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 8px hsl(152 100% 50% / 0);
+    }
+  }
+
+  /* Data update flash */
+  .flash-update {
+    animation: flash-green 0.5s ease-out;
+  }
+
+  @keyframes flash-green {
+    0% {
+      background-color: hsl(152 100% 50% / 0.2);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+
+  /* Shimmer loading effect */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(224 47% 11%) 0%,
+      hsl(224 47% 18%) 50%,
+      hsl(224 47% 11%) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  /* Gradient borders */
+  .gradient-border {
+    position: relative;
+    background: hsl(var(--card));
+    border-radius: var(--radius);
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, hsl(152 100% 50% / 0.3), hsl(217 91% 60% / 0.3));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  /* Status dot animation */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-dot-live {
+    @apply bg-profit;
+    animation: status-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes status-pulse {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(1.2);
+    }
+  }
+
+  /* Table row hover */
+  .table-row-hover {
+    @apply transition-colors duration-150 hover:bg-accent/50;
+  }
+
+  /* Progress bar glow */
+  .progress-glow {
+    box-shadow: 0 0 10px hsl(152 100% 50% / 0.4);
+  }
+}
+
+@layer utilities {
+  /* Scrollbar styling */
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
